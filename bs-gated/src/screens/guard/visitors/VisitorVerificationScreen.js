@@ -267,8 +267,8 @@ export default function VisitorVerificationScreen({ navigation }) {
     const input = otpInput.trim();
     if (input.length < 4) { Alert.alert('Invalid', 'Enter a valid OTP'); return; }
  
-    // If 4 digits, try Maintenance OTP
-    if (input.length === 4) {
+    // If 6 digits, try Maintenance OTP
+    if (input.length === 6) {
       const validateMaintenanceOtp = useSecurityStore.getState().validateMaintenanceOtp;
       const { ok, request } = await validateMaintenanceOtp(input, guardId, guardName);
       if (ok) {

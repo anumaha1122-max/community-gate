@@ -59,14 +59,14 @@ export default function VendorVerificationScreen({ navigation }) {
 
   const displayed = tab === 'pending' ? pending : inside;
 
-  const handleVerify = (requestId, otp) => {
+  const handleVerify = async (requestId, otp) => {
     const req = requests.find(r => r.id === requestId);
     const bl  = checkBlacklist?.(req?.assignedVendorName || '', '');
     if (bl) {
       Alert.alert('BLACKLISTED', `${req?.assignedVendorName} is blacklisted.\nReason: ${bl.reason}`);
       return false;
     }
-    const result = guardValidateMaintenanceOTP(requestId, otp);
+    const result = await guardValidateMaintenanceOTP(requestId, otp);
     if (result?.ok) {
       setResults(prev => ({ ...prev, [requestId]: 'ok' }));
       setOtpInputs(prev => ({ ...prev, [requestId]: '' }));
@@ -175,9 +175,9 @@ export default function VendorVerificationScreen({ navigation }) {
     String(r.id).toUpperCase() === mJobId.trim().toUpperCase() && r.status === 'approved_to_start'
   );
 
-  const handleManualVerify = () => {
+  const handleManualVerify = async () => {
     if (!mFound) { Alert.alert('Not found', 'No approved job with this ID.'); return; }
-    const ok = handleVerify(mFound.id, mOtp);
+    const ok = await handleVerify(mFound.id, mOtp);
     setMResult(ok ? 'ok' : 'fail');
     if (ok) { setMJobId(''); setMOtp(''); }
     else setMOtp('');

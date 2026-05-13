@@ -107,27 +107,20 @@ export default function MaintenanceDetailScreen({ route, navigation }) {
           color: theme.textMuted,
         };
       case 'work_in_progress':
-        // If vendor submitted a stage for approval — show approve button
         if (r.pendingStepApproval) {
-          const WORK_STAGES = [
-            'Work Initiated', 'Site Visit Done', 'Material Planning', 'Material Approved',
-            'Material Procured', 'Work in Progress', 'Quality Check', 'Testing',
-            'Snag / Issue Fixing', 'Final Inspection', 'Handover to Resident', 'Work Completed',
-          ];
-          const stepNum = (r.pendingStep ?? r._workStep ?? 0);
-          const stageName = WORK_STAGES[stepNum] || `Stage ${stepNum + 1}`;
+          const isCompletion = r._workStep === 12;
           return {
-            label: `✅ Approve Stage ${stepNum + 1} — "${stageName}"`,
+            label: isCompletion ? '✅ Approve Final Work' : '✅ Confirm Vendor Arrival at Site',
             action: () => {
-              approveWorkStep(r.id, 'Admin');
-              Alert.alert('✅ Approved!', `Stage ${stepNum + 1} approved. Vendor will be notified to continue.`);
+              approveWorkStep(r.id, true, 'Admin');
+              Alert.alert('✅ Confirmed', isCompletion ? 'Work approved. Resident will be billed.' : 'Vendor arrival confirmed. Work started.');
             },
             color: COLORS.success,
           };
         }
         return {
-          label: `🔧 Work In Progress (Stage ${r._workStep || 0}/12)`,
-          action: () => Alert.alert('In Progress', `${r.assignedVendorName || 'Vendor'} is working at Unit ${r.unit}. Stage ${r._workStep || 0}/12 complete.`),
+          label: '🔧 Work In Progress',
+          action: () => Alert.alert('In Progress', `${r.assignedVendorName || 'Vendor'} is currently working at Unit ${r.unit}.`),
           color: COLORS.accent,
         };
       case 'work_completed':

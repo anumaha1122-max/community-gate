@@ -3,21 +3,6 @@
  *
  * THEME  : Matches visitor/real-estate screens — teal #1A7A7A header,
  *          #E8F5F5 background, white cards, teal/amber accents.
- *
- * REAL-WORLD WORKFLOW ADDED vs original:
- *  ✅ Status filter tabs (All / Action Required / In Progress / Closed)
- *  ✅ Priority colour-coding on cards (Urgent = red, High = amber, etc.)
- *  ✅ Visual status progress stepper in detail view
- *  ✅ Quote breakdown card (amount + description + ETA)
- *  ✅ Accept / Reject quote with confirmation
- *  ✅ Work step approval (Approve / Reject stage) with stage name
- *  ✅ Payment due card with Pay Now
- *  ✅ Rate & Review after work_completed / paid
- *  ✅ Re-open / Escalate action for completed requests
- *  ✅ Richer new-request form: urgency selector, preferred time slot,
- *     contact preference (call / WhatsApp / in-app)
- *  ✅ Vendor info chip when assigned
- *  ✅ Improved timeline with colour-coded dots
  */
 
 import React, { useState } from 'react';
@@ -27,6 +12,7 @@ import {
 } from 'react-native';
 import useAppStore from '../../../store/appStore';
 import { useAuthStore } from '../../../store/AuthStore';
+import useResidentStore from '../../../store/residentStore';
 import StatusBadge from '../../../components/common/StatusBadge';
 import { useTheme } from '../../../hooks/useTheme';
 
@@ -46,14 +32,6 @@ const PRIORITY_COLOR = {
   Urgent: { color: '#B91C1C', bg: '#FEE2E2' },
 };
 
-// Full 12-stage workflow steps (matches vendor side)
-const WORK_STAGES = [
-  'Work Initiated', 'Site Visit Done', 'Material Planning', 'Material Approved',
-  'Material Procured', 'Work in Progress', 'Quality Check', 'Testing',
-  'Snag / Issue Fixing', 'Final Inspection', 'Handover to Resident', 'Work Completed',
-];
-
-// High-level lifecycle steps (shown for all statuses except work_in_progress)
 const STATUS_STEPS = [
   { key: 'submitted', label: 'Submitted', icon: '📋' },
   { key: 'quote_requested', label: 'Quote Sent', icon: '📩' },
@@ -63,26 +41,12 @@ const STATUS_STEPS = [
   { key: 'approved_to_start', label: 'Approved', icon: '🚀' },
   { key: 'work_in_progress', label: 'In Progress', icon: '🔨' },
   { key: 'work_completed', label: 'Completed', icon: '🎉' },
-  { key: 'payment_requested_to_admin', label: 'Pmt Admin', icon: '🏦' },
-  { key: 'payment_requested_to_resident', label: 'Pmt Due', icon: '💳' },
-  { key: 'payment_received', label: 'Pmt Received', icon: '💸' },
-  { key: 'paid_to_vendor', label: 'Paid', icon: '✔️' },
 ];
 
-// 12 internal work stages — shown as a sub-stepper when status === work_in_progress
-const WORK_STAGE_STEPS = [
-  { label: 'Work Initiated', icon: '🔨' },
-  { label: 'Site Visit Done', icon: '🏠' },
-  { label: 'Material Planning', icon: '📐' },
-  { label: 'Material Approved', icon: '✅' },
-  { label: 'Material Procured', icon: '🛒' },
-  { label: 'Work in Progress', icon: '⚙️' },
-  { label: 'Quality Check', icon: '🔍' },
-  { label: 'Testing', icon: '🧪' },
-  { label: 'Snag / Issue Fixing', icon: '🔧' },
-  { label: 'Final Inspection', icon: '📋' },
-  { label: 'Handover to Resident', icon: '🤝' },
-  { label: 'Work Completed', icon: '🎉' },
+const WORK_STAGES = [
+  'Work Initiated', 'Site Visit Done', 'Material Planning', 'Material Approved',
+  'Material Procured', 'Work in Progress', 'Quality Check', 'Testing',
+  'Snag / Issue Fixing', 'Final Inspection', 'Handover to Resident', 'Work Completed',
 ];
 
 function statusIndex(status) {
@@ -99,58 +63,7 @@ function fmtDate(iso) {
 }
 
 // ─── Status Progress Stepper ──────────────────────────────────────────────────
-function StatusStepper({ status, workStep = 0, pendingStepApproval = false }) {
-  const isInProgress = status === 'work_in_progress';
-
-  // ── When in work_in_progress: show the 12-stage work stepper ──
-  if (isInProgress) {
-    // workStep is the last COMPLETED stage index (0-based)
-    // pendingStepApproval means that stage is done but awaiting resident approval
-    return (
-      <View>
-        <Text style={stp.subHeader}>
-          🔨 Work Stage {workStep + 1} of 12
-          {pendingStepApproval ? '  ·  ⏳ Awaiting your approval' : ''}
-        </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 6 }}>
-            {WORK_STAGE_STEPS.map((step, i) => {
-              const done = i < workStep;
-              const active = i === workStep;
-              const pending = i > workStep;
-              return (
-                <View key={i} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <View style={{ alignItems: 'center', width: 64 }}>
-                    <View style={[
-                      stp.dot,
-                      done && stp.dotDone,
-                      active && (pendingStepApproval ? stp.dotPending2 : stp.dotActive),
-                      pending && stp.dotPending,
-                    ]}>
-                      <Text style={{ fontSize: 11 }}>{done ? '✓' : step.icon}</Text>
-                    </View>
-                    <Text style={[
-                      stp.stepLabel,
-                      active && { color: pendingStepApproval ? '#B45309' : '#1A7A7A', fontWeight: '800' },
-                      done && { color: '#0D6E6E' },
-                    ]} numberOfLines={2}>
-                      {step.label}
-                    </Text>
-                    <Text style={stp.stepNum}>{i + 1}</Text>
-                  </View>
-                  {i < WORK_STAGE_STEPS.length - 1 && (
-                    <View style={[stp.line, done && stp.lineDone]} />
-                  )}
-                </View>
-              );
-            })}
-          </View>
-        </ScrollView>
-      </View>
-    );
-  }
-
-  // ── All other statuses: show the 12-step lifecycle stepper ──
+function StatusStepper({ status }) {
   const current = statusIndex(status);
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
@@ -222,7 +135,6 @@ function RateModal({ visible, onClose, req }) {
 
   const handleSubmit = () => {
     if (!rating) { Alert.alert('Please select a star rating'); return; }
-    // Persist to appStore so vendor can see it
     if (req && submitVendorRating) {
       submitVendorRating({
         vendorId: req.assignedVendorId || 'ven1',
@@ -236,7 +148,13 @@ function RateModal({ visible, onClose, req }) {
       });
     }
     setDone(true);
-    setTimeout(() => { setDone(false); setRating(0); setComment(''); onClose(); Alert.alert('⭐ Thank you!', 'Your feedback has been submitted.'); }, 900);
+    setTimeout(() => {
+      setDone(false);
+      setRating(0);
+      setComment('');
+      onClose();
+      Alert.alert('⭐ Thank you!', 'Your feedback has been submitted.');
+    }, 900);
   };
 
   if (!req) return null;
@@ -286,13 +204,12 @@ const rm = StyleSheet.create({
 // ─── Request Card ─────────────────────────────────────────────────────────────
 function RequestCard({ req, onPress }) {
   const pc = PRIORITY_COLOR[req.priority] || PRIORITY_COLOR.Medium;
-  const needsAction = ['quote_sent_to_resident', 'payment_requested_to_resident'].includes(req.status)
-    || (req.status === 'work_in_progress' && req.pendingStepApproval);
-  const closed = ['work_completed', 'payment_received', 'paid_to_vendor', 'rejected'].includes(req.status);
+  const needsAction = ['quote_sent_to_resident'].includes(req.status)
+    || (['work_in_progress', 'work_completed'].includes(req.status) && req.pendingStepApproval);
+  const closed = ['work_completed', 'payment_received', 'paid_to_vendor', 'rejected', 'quote_rejected'].includes(req.status);
 
   return (
     <TouchableOpacity style={[rc.card, needsAction && rc.cardUrgent]} activeOpacity={0.85} onPress={onPress}>
-      {/* Top row */}
       <View style={rc.topRow}>
         <View style={{ flex: 1 }}>
           <Text style={rc.title} numberOfLines={1}>{req.title}</Text>
@@ -301,7 +218,6 @@ function RequestCard({ req, onPress }) {
         <StatusBadge status={req.status} />
       </View>
 
-      {/* Priority + Date row */}
       <View style={rc.metaRow}>
         <View style={[rc.priorityTag, { backgroundColor: pc.bg }]}>
           <Text style={[rc.priorityText, { color: pc.color }]}>{req.priority}</Text>
@@ -314,18 +230,16 @@ function RequestCard({ req, onPress }) {
         )}
       </View>
 
-      {/* Action required banner */}
       {needsAction && (
         <View style={rc.actionBanner}>
           <Text style={rc.actionBannerText}>
             {req.status === 'quote_sent_to_resident' ? '💰 Quote ready — tap to review' :
-              req.status === 'payment_requested_to_resident' ? '💳 Payment due — tap to pay' :
-                req.status === 'work_in_progress' && req.pendingStepApproval ? '🔨 Work step done — tap to approve' : ''}
+                (req.status === 'work_in_progress' && req.pendingStepApproval && (req.workStep === 0 || !req.workStep)) ? '🔧 Vendor at site — tap to confirm arrival' :
+                  (req.status === 'work_in_progress' && req.pendingStepApproval && req.workStep === 12) ? '🏁 Work done — tap to approve' : ''}
           </Text>
         </View>
       )}
 
-      {/* Closed tag */}
       {closed && (
         <View style={rc.closedTag}>
           <Text style={rc.closedText}>✔ Closed</Text>
@@ -354,6 +268,8 @@ const rc = StyleSheet.create({
   closedTag: { alignSelf: 'flex-start', marginTop: 6, backgroundColor: '#F0FAFA', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
   closedText: { fontSize: 11, color: '#7A9E9E', fontWeight: '700' },
   tapHint: { fontSize: 11, color: '#B0DEDE', textAlign: 'right', marginTop: 6, fontWeight: '600' },
+  directPayBtn: { backgroundColor: '#1A7A7A', borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginTop: 12, shadowColor: '#1A7A7A', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 3 },
+  directPayBtnText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
 });
 
 // ─── New Request Modal ────────────────────────────────────────────────────────
@@ -376,7 +292,6 @@ function NewRequestModal({ visible, onClose, onSubmit, theme }) {
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
       <SafeAreaView style={{ flex: 1, backgroundColor: '#E8F5F5' }}>
-        {/* Header */}
         <View style={nrm.header}>
           <TouchableOpacity onPress={onClose}>
             <Text style={nrm.close}>✕</Text>
@@ -386,12 +301,10 @@ function NewRequestModal({ visible, onClose, onSubmit, theme }) {
         </View>
 
         <ScrollView contentContainerStyle={nrm.body} showsVerticalScrollIndicator={false}>
-          {/* Info */}
           <View style={nrm.infoBanner}>
             <Text style={nrm.infoText}>📋 Your request goes to the admin, who will assign a vendor and share a quote before any work begins.</Text>
           </View>
 
-          {/* Category */}
           <Text style={nrm.label}>Category</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
             {CATEGORIES.map(c => (
@@ -401,7 +314,6 @@ function NewRequestModal({ visible, onClose, onSubmit, theme }) {
             ))}
           </ScrollView>
 
-          {/* Priority */}
           <Text style={nrm.label}>Priority</Text>
           <View style={nrm.chipRow}>
             {PRIORITIES.map(p => {
@@ -418,15 +330,12 @@ function NewRequestModal({ visible, onClose, onSubmit, theme }) {
             })}
           </View>
 
-          {/* Title */}
           <Text style={nrm.label}>Issue Title *</Text>
           <TextInput style={nrm.input} placeholder="e.g. Leaking pipe under kitchen sink" placeholderTextColor="#7A9E9E" value={form.title} onChangeText={v => f('title', v)} />
 
-          {/* Description */}
           <Text style={nrm.label}>Description *</Text>
           <TextInput style={[nrm.input, { minHeight: 90, textAlignVertical: 'top' }]} placeholder="Describe the issue in detail — what's wrong, when it started, severity…" placeholderTextColor="#7A9E9E" value={form.description} onChangeText={v => f('description', v)} multiline />
 
-          {/* Preferred Time Slot */}
           <Text style={nrm.label}>Preferred Time Slot for Visit</Text>
           <View style={nrm.chipRow}>
             {TIME_SLOTS.map(s => (
@@ -436,7 +345,6 @@ function NewRequestModal({ visible, onClose, onSubmit, theme }) {
             ))}
           </View>
 
-          {/* Contact Preference */}
           <Text style={nrm.label}>Preferred Contact Method</Text>
           <View style={nrm.chipRow}>
             {CONTACT_OPT.map(c => (
@@ -446,7 +354,6 @@ function NewRequestModal({ visible, onClose, onSubmit, theme }) {
             ))}
           </View>
 
-          {/* Submit */}
           <TouchableOpacity style={nrm.submitBtn} onPress={handleSubmit}>
             <Text style={nrm.submitText}>🔧 Submit Request</Text>
           </TouchableOpacity>
@@ -480,18 +387,16 @@ function DetailModal({
   visible, req, onClose, theme,
   onAcceptQuote, onRejectQuote,
   onApproveStep, onRejectStep,
-  onPay, onRateOpen, onReopen, onEscalate,
+  onRateOpen, onReopen, onEscalate,
 }) {
   if (!req) return null;
   const pc = PRIORITY_COLOR[req.priority] || PRIORITY_COLOR.Medium;
   const stepNum = req.pendingStep ?? req._workStep ?? 0;
-  const stageName = WORK_STAGES[stepNum] || `Stage ${stepNum + 1}`;
   const isCompleted = ['work_completed', 'payment_received', 'paid_to_vendor'].includes(req.status);
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
       <SafeAreaView style={{ flex: 1, backgroundColor: '#E8F5F5' }}>
-        {/* Header */}
         <View style={dm.header}>
           <TouchableOpacity onPress={onClose}>
             <Text style={dm.close}>✕</Text>
@@ -503,14 +408,11 @@ function DetailModal({
         </View>
 
         <ScrollView contentContainerStyle={dm.body} showsVerticalScrollIndicator={false}>
-
-          {/* ── Status Stepper ── */}
           <View style={dm.card}>
             <Text style={dm.secLabel}>PROGRESS</Text>
             <StatusStepper status={req.status} />
           </View>
 
-          {/* ── Request Details ── */}
           <View style={dm.card}>
             <Text style={dm.secLabel}>REQUEST DETAILS</Text>
             {[
@@ -532,7 +434,6 @@ function DetailModal({
             <Text style={dm.descText}>{req.description}</Text>
           </View>
 
-          {/* ── Quote Action ── */}
           {req.status === 'quote_sent_to_resident' && req.quote && (
             <View style={[dm.actionCard, { borderColor: '#FDE68A' }]}>
               <Text style={dm.actionCardTitle}>💰 Quote Received — Review & Decide</Text>
@@ -558,20 +459,22 @@ function DetailModal({
             </View>
           )}
 
-          {/* ── Work Step Approval ── */}
           {req.status === 'work_in_progress' && req.pendingStepApproval && (
-            <View style={[dm.actionCard, { borderColor: '#B0DEDE' }]}>
-              <Text style={dm.actionCardTitle}>🔨 Work Step Complete</Text>
-              <Text style={dm.actionCardSub}>
-                Vendor has completed: <Text style={{ fontWeight: '800', color: '#1A2E2E' }}>{stageName}</Text>
+            <View style={[dm.actionCard, { borderColor: '#1A7A7A' }]}>
+              <Text style={dm.actionCardTitle}>
+                {(req.workStep === 0 || !req.workStep) ? '🔧 Confirm Vendor Arrival' : '🏁 Approve Maintenance Work'}
               </Text>
-              <Text style={dm.actionCardSub}>Please inspect and approve to allow the next stage.</Text>
+              <Text style={dm.actionCardSub}>
+                {(req.workStep === 0 || !req.workStep)
+                  ? 'The vendor has arrived at the gate and is ready to start. Tap Approve to confirm they have reached your unit.'
+                  : 'The vendor has marked the work as completed. Please inspect and approve to proceed to payment.'}
+              </Text>
               <View style={dm.btnRow}>
                 <TouchableOpacity style={[dm.btn, { backgroundColor: '#1A7A7A', flex: 1 }]} onPress={() => { onApproveStep(req.id, true); onClose(); }}>
                   <Text style={dm.btnText}>✓ Approve</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[dm.btn, { backgroundColor: '#FEE2E2', flex: 1 }]} onPress={() => {
-                  Alert.alert('Reject Stage', 'Reject this stage and ask vendor to redo?', [
+                  Alert.alert('Reject/Feedback', 'Not satisfied? Vendor will be notified to review.', [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Reject', style: 'destructive', onPress: () => { onRejectStep(req.id, false); onClose(); } },
                   ]);
@@ -582,24 +485,6 @@ function DetailModal({
             </View>
           )}
 
-          {/* ── Payment ── */}
-          {req.status === 'payment_requested_to_resident' && (
-            <View style={[dm.actionCard, { borderColor: '#FDE68A' }]}>
-              <Text style={dm.actionCardTitle}>💳 Payment Due</Text>
-              <Text style={dm.quoteAmount}>₹{(req.finalAmount || req.quote?.amount)?.toLocaleString('en-IN')}</Text>
-              <Text style={dm.actionCardSub}>Work is complete. Please pay to close this request.</Text>
-              <TouchableOpacity style={[dm.btn, { backgroundColor: '#1A7A7A', marginTop: 12 }]} onPress={() => {
-                Alert.alert('Confirm Payment', `Pay ₹${(req.finalAmount || req.quote?.amount)?.toLocaleString('en-IN')}?`, [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Pay Now', onPress: () => { onPay(req.id); onClose(); } },
-                ]);
-              }}>
-                <Text style={dm.btnText}>💳 Pay Now</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ── Post-Completion Actions ── */}
           {isCompleted && (
             <View style={dm.card}>
               <Text style={dm.secLabel}>COMPLETED</Text>
@@ -613,7 +498,7 @@ function DetailModal({
                 <TouchableOpacity style={[dm.btn, { backgroundColor: '#FEE2E2', flex: 1 }]} onPress={() => {
                   Alert.alert('Re-open Request', 'Is the issue not fully resolved? This will create a follow-up.', [
                     { text: 'Cancel', style: 'cancel' },
-                    { text: 'Re-open', onPress: () => { onReopen(req.id); onClose(); Alert.alert('↩ Re-opened', 'A follow-up request has been sent to admin.'); } },
+                    { text: 'Re-open', onPress: () => { onReopen(req.id); onClose(); } },
                   ]);
                 }}>
                   <Text style={[dm.btnText, { color: '#B91C1C' }]}>↩ Re-open</Text>
@@ -622,19 +507,17 @@ function DetailModal({
             </View>
           )}
 
-          {/* ── Escalate (for long-pending requests) ── */}
           {['submitted', 'quote_requested', 'assigned'].includes(req.status) && (
             <TouchableOpacity style={dm.escalateBtn} onPress={() => {
               Alert.alert('Escalate Request', 'This will send an urgent reminder to admin.', [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Escalate', onPress: () => { onEscalate(req.id); onClose(); Alert.alert('🚨 Escalated', 'Admin has been notified with high urgency.'); } },
+                { text: 'Escalate', onPress: () => { onEscalate(req.id); onClose(); } },
               ]);
             }}>
               <Text style={dm.escalateBtnText}>🚨 Escalate to Admin</Text>
             </TouchableOpacity>
           )}
 
-          {/* ── Timeline ── */}
           {req.timeline?.length > 0 && (
             <View style={dm.card}>
               <Text style={dm.secLabel}>TIMELINE</Text>
@@ -654,7 +537,6 @@ function DetailModal({
               ))}
             </View>
           )}
-
           <View style={{ height: 40 }} />
         </ScrollView>
       </SafeAreaView>
@@ -717,8 +599,8 @@ export default function ResidentMaintenanceScreen({ navigation }) {
 
   const addMaintenanceRequest = useAppStore(s => s.addMaintenanceRequest);
   const residentRespondToQuote = useAppStore(s => s.residentRespondToQuote);
-  const residentPay = useAppStore(s => s.residentPay);
   const approveWorkStep = useAppStore(s => s.approveWorkStep);
+  const bills = useResidentStore(s => s.bills);
 
   const [filter, setFilter] = useState('all');
   const [showNew, setShowNew] = useState(false);
@@ -730,19 +612,19 @@ export default function ResidentMaintenanceScreen({ navigation }) {
     .filter(r => r.residentId === currentUser?.id)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-  const ACTION_STATUSES = ['quote_sent_to_resident', 'payment_requested_to_resident'];
+  const ACTION_STATUSES = ['quote_sent_to_resident'];
   const PROGRESS_STATUSES = ['submitted', 'quote_requested', 'quoted', 'assigned', 'quote_accepted', 'approved_to_start', 'work_in_progress'];
   const CLOSED_STATUSES = ['work_completed', 'payment_received', 'paid_to_vendor', 'rejected', 'quote_rejected'];
 
   const filtered = myRequests.filter(r => {
-    if (filter === 'action') return ACTION_STATUSES.includes(r.status) || (r.status === 'work_in_progress' && r.pendingStepApproval);
-    if (filter === 'progress') return PROGRESS_STATUSES.includes(r.status); // show ALL in-progress, including pendingStepApproval
+    if (filter === 'action') return ACTION_STATUSES.includes(r.status) || (['work_in_progress', 'work_completed'].includes(r.status) && r.pendingStepApproval);
+    if (filter === 'progress') return PROGRESS_STATUSES.includes(r.status);
     if (filter === 'closed') return CLOSED_STATUSES.includes(r.status);
     return true;
   });
 
   const actionCount = myRequests.filter(r =>
-    ACTION_STATUSES.includes(r.status) || (r.status === 'work_in_progress' && r.pendingStepApproval)
+    ACTION_STATUSES.includes(r.status) || (['work_in_progress', 'work_completed'].includes(r.status) && r.pendingStepApproval)
   ).length;
 
   const submitRequest = async (form) => {
@@ -754,38 +636,27 @@ export default function ResidentMaintenanceScreen({ navigation }) {
         unit: currentUser.unit,
       });
       setShowNew(false);
-      Alert.alert(
-        '✅ Request Submitted!',
-        `Your ${form.category} request has been sent to admin.\n\nRequest ID: ${req.id}\n\nYou will be notified once a vendor is assigned and a quote is ready.`,
-      );
+      Alert.alert('✅ Submitted!', `ID: ${req.id}`);
     } catch (error) {
-      console.error('Submit Request Error:', error);
-      Alert.alert('Error', 'Failed to submit request. Please try again.');
+      Alert.alert('Error', 'Failed to submit.');
     }
   };
 
-  const handleReopen = (id) => {
-    // Creates a follow-up notification to admin (store doesn't have reopen — we simulate)
-    Alert.alert('↩ Re-opened', 'A follow-up has been sent to admin.');
-  };
-
-  const handleEscalate = (id) => {
-    Alert.alert('🚨 Escalated', 'Admin has been notified urgently.');
-  };
+  const handleReopen = (id) => Alert.alert('↩ Re-opened', 'Follow-up sent.');
+  const handleEscalate = (id) => Alert.alert('🚨 Escalated', 'Admin notified.');
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN') : '';
 
   return (
     <SafeAreaView style={sc.screen}>
       <StatusBar barStyle="light-content" backgroundColor="#1A7A7A" />
-
-      {/* ── Header ── */}
       <View style={sc.header}>
-        <TouchableOpacity onPress={() => navigation?.goBack()} style={sc.backBtn}>
-          <Text style={sc.backText}>← Back</Text>
-        </TouchableOpacity>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <View>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={sc.backBtn}>
+              <Text style={sc.backText}>← Dashboard</Text>
+            </TouchableOpacity>
             <Text style={sc.headerTitle}>Maintenance</Text>
-            <Text style={sc.headerSub}>{myRequests.length} total{actionCount > 0 ? ` · ${actionCount} need action` : ''}</Text>
+            <Text style={sc.headerSub}>{myRequests.length} total{actionCount > 0 ? ` · ${actionCount} action` : ''}</Text>
           </View>
           <TouchableOpacity style={sc.newBtn} onPress={() => setShowNew(true)}>
             <Text style={sc.newBtnText}>+ New</Text>
@@ -793,101 +664,58 @@ export default function ResidentMaintenanceScreen({ navigation }) {
         </View>
       </View>
 
-      {/* ── Filter Tabs ── */}
       <View style={sc.filterBar}>
         {FILTERS.map(({ k, l }) => (
-          <TouchableOpacity
-            key={k}
-            style={[sc.filterTab, filter === k && sc.filterTabActive]}
-            onPress={() => setFilter(k)}
-          >
-            <Text style={[sc.filterTabText, filter === k && sc.filterTabTextActive]}>
-              {l}{k === 'action' && actionCount > 0 ? ` (${actionCount})` : ''}
-            </Text>
+          <TouchableOpacity key={k} style={[sc.filterTab, filter === k && sc.filterTabActive]} onPress={() => setFilter(k)}>
+            <Text style={[sc.filterTabText, filter === k && sc.filterTabTextActive]}>{l}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* ── List ── */}
       <FlatList
         data={filtered}
         keyExtractor={r => r.id}
         contentContainerStyle={sc.listPad}
-        showsVerticalScrollIndicator={false}
         renderItem={({ item }) => (
           <RequestCard req={item} onPress={() => setSelectedReq(item)} />
         )}
         ListEmptyComponent={
           <View style={sc.empty}>
-            <Text style={{ fontSize: 52 }}>🔧</Text>
-            <Text style={sc.emptyTitle}>
-              {filter === 'all' ? 'No requests yet' : `No ${filter} requests`}
-            </Text>
-            <Text style={sc.emptySub}>
-              {filter === 'all'
-                ? 'Tap "+ New" to submit a maintenance request.'
-                : 'Switch to "All" to see all your requests.'}
-            </Text>
-            {filter === 'all' && (
-              <TouchableOpacity style={sc.emptyBtn} onPress={() => setShowNew(true)}>
-                <Text style={sc.emptyBtnText}>+ New Request</Text>
-              </TouchableOpacity>
-            )}
+            <Text style={sc.emptyTitle}>No requests</Text>
           </View>
         }
       />
 
-      {/* ── Modals ── */}
-      <NewRequestModal
-        visible={showNew}
-        onClose={() => setShowNew(false)}
-        onSubmit={submitRequest}
-        theme={theme}
-      />
-
+      <NewRequestModal visible={showNew} onClose={() => setShowNew(false)} onSubmit={submitRequest} theme={theme} />
       <DetailModal
-        visible={!!selectedReq}
-        req={selectedReq}
-        onClose={() => setSelectedReq(null)}
-        theme={theme}
+        visible={!!selectedReq} req={selectedReq} onClose={() => setSelectedReq(null)} theme={theme}
         onAcceptQuote={(id) => residentRespondToQuote(id, true)}
         onRejectQuote={(id) => residentRespondToQuote(id, false)}
         onApproveStep={(id) => approveWorkStep?.(id, true, currentUser?.name || 'Resident')}
         onRejectStep={(id) => approveWorkStep?.(id, false, currentUser?.name || 'Resident')}
-        onPay={(id) => residentPay?.(id)}
         onRateOpen={() => { setRateTarget(selectedReq); setShowRate(true); }}
-        onReopen={handleReopen}
-        onEscalate={handleEscalate}
+        onReopen={handleReopen} onEscalate={handleEscalate}
       />
-
-      <RateModal
-        visible={showRate}
-        onClose={() => { setShowRate(false); setRateTarget(null); }}
-        req={rateTarget}
-      />
+      <RateModal visible={showRate} onClose={() => { setShowRate(false); setRateTarget(null); }} req={rateTarget} />
     </SafeAreaView>
   );
 }
 
-// ─── Screen Styles ────────────────────────────────────────────────────────────
 const sc = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#E8F5F5' },
-  header: { backgroundColor: '#1A7A7A', paddingTop: 40, paddingBottom: 16, paddingHorizontal: 20 },
-  backBtn: {},
-  backText: { color: 'rgba(255,255,255,0.85)', fontSize: 14, fontWeight: '600' },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: '#FFF' },
-  headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.72)', marginTop: 1 },
-  newBtn: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
-  newBtnText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  header: { backgroundColor: '#1A7A7A', padding: 20, paddingTop: 40 },
+  backBtn: { marginBottom: 4 },
+  backText: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: '#FFF' },
+  headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.6)' },
+  newBtn: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  newBtnText: { color: '#FFF', fontWeight: '800' },
   filterBar: { flexDirection: 'row', backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#D0EEEE' },
-  filterTab: { flex: 1, paddingVertical: 11, alignItems: 'center' },
+  filterTab: { flex: 1, paddingVertical: 12, alignItems: 'center' },
   filterTabActive: { borderBottomWidth: 3, borderBottomColor: '#1A7A7A' },
-  filterTabText: { fontSize: 12, fontWeight: '600', color: '#7A9E9E' },
+  filterTabText: { fontSize: 13, color: '#7A9E9E' },
   filterTabTextActive: { color: '#1A7A7A', fontWeight: '800' },
-  listPad: { padding: 14, paddingBottom: 40 },
-  empty: { alignItems: 'center', paddingTop: 60, gap: 10, paddingHorizontal: 32 },
-  emptyTitle: { fontSize: 17, fontWeight: '800', color: '#1A2E2E' },
-  emptySub: { fontSize: 14, color: '#7A9E9E', textAlign: 'center', lineHeight: 20 },
-  emptyBtn: { marginTop: 8, backgroundColor: '#1A7A7A', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 13 },
-  emptyBtnText: { color: '#FFF', fontWeight: '800', fontSize: 14 },
+  listPad: { padding: 16 },
+  empty: { alignItems: 'center', marginTop: 60 },
+  emptyTitle: { fontSize: 16, color: '#7A9E9E' },
 });

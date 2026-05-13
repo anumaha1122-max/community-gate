@@ -135,14 +135,14 @@ export default function RequestDetailsScreen({ navigation, route }) {
       {request.status === 'work_in_progress' && !request.pendingStepApproval && (
         <View style={styles.footer}>
           <PrimaryButton
-            title={`🏁 Mark "${WORK_STAGES[request.workStep || 0]}" Complete`}
+            title="🏁 Mark Work as Completed"
             onPress={async () => {
               try {
                 await vendorAdvanceStep(request.id);
-                alert('✅ Stage marked as complete. Awaiting resident approval.');
+                alert('✅ Work marked as completed. Awaiting final approval.');
               } catch (e) {
                 console.error(e);
-                alert('Error updating stage');
+                alert('Error updating status');
               }
             }}
             color={Colors.teal}
@@ -154,7 +154,16 @@ export default function RequestDetailsScreen({ navigation, route }) {
       {request.status === 'work_in_progress' && request.pendingStepApproval && (
         <View style={[styles.footer, { backgroundColor: Colors.amberLight }]}>
           <Text style={{ textAlign: 'center', color: Colors.amber, fontWeight: Fonts.bold }}>
-            ⏳ Awaiting Resident Approval for Stage { (request.workStep || 0) }
+            ⏳ Waiting for Resident to confirm your arrival...
+          </Text>
+        </View>
+      )}
+
+      {/* Work Completed — Awaiting Final Approval */}
+      {request.status === 'work_completed' && request.pendingStepApproval && (
+        <View style={[styles.footer, { backgroundColor: Colors.amberLight }]}>
+          <Text style={{ textAlign: 'center', color: Colors.amber, fontWeight: Fonts.bold }}>
+            ⏳ Waiting for Final Work Approval...
           </Text>
         </View>
       )}

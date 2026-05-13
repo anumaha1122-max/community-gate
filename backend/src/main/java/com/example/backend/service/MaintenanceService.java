@@ -17,7 +17,6 @@ import java.util.Random;
 public class MaintenanceService {
 
     private final MaintenanceRepository maintenanceRepository;
-    private final MaintenanceQuoteRepository quoteRepository;
     private final ResidentRepository residentRepository;
 
     // ─── Helper ───────────────────────────────────────────────────────────────
@@ -155,7 +154,9 @@ public class MaintenanceService {
 
         req.setStatus("work_in_progress");
         req.setVendorGateOtp(null);
-        addTimeline(req, "Vendor verified at gate. Work in progress.", "Security", null);
+        req.setWorkStep(0);
+        req.setPendingStepApproval(true); // Resident/Admin must approve work start (arrival)
+        addTimeline(req, "Vendor verified at gate. Work in progress.", "Security", "Awaiting arrival confirmation");
         return maintenanceRepository.save(req);
     }
 
@@ -165,63 +166,53 @@ public class MaintenanceService {
                 .orElseThrow(() -> new RuntimeException("Invalid Gate OTP: " + otp));
  
         req.setStatus("work_in_progress");
+        req.setPendingStepApproval(true); // Resident must confirm arrival
+        req.setWorkStep(0); // 0 signifies Arrival state
         req.setVendorGateOtp(null); // Clear OTP after successful entry
-        addTimeline(req, "Vendor verified at gate. Work in progress.", "Security", null);
+        addTimeline(req, "Vendor verified at gate. Awaiting resident arrival confirmation.", "Security", "Arrival Pending");
         return maintenanceRepository.save(req);
     }
  
-    // ─── VENDOR: Complete a work step (0–11) ─────────────────────────────────
+    // ─── VENDOR: Mark work as completed ──────────────────────────────────────
 
     @Transactional
     public MaintenanceRequest vendorCompleteStep(Long requestId, int stepIndex) {
         MaintenanceRequest req = findRequest(requestId);
-        req.setStatus("work_in_progress");
-        req.setWorkStep(stepIndex);
-        req.setPendingStepApproval(true);
+        
+        // Stay in work_in_progress until resident approves the finished work
+        req.setStatus("work_in_progress"); 
+        req.setWorkStep(12); // 12 signifies Completion submitted
+        req.setPendingStepApproval(true); // Resident/Admin must approve the final work
 
-        String[] STAGES = {
-                "Work Initiated", "Site Visit Done", "Material Planning", "Material Approved",
-                "Material Procured", "Work in Progress", "Quality Check", "Testing",
-                "Snag / Issue Fixing", "Final Inspection", "Handover to Resident", "Work Completed"
-        };
-        String stageName = stepIndex < STAGES.length ? STAGES[stepIndex] : "Stage " + (stepIndex + 1);
         String vendorName = req.getAssignedVendor() != null ? req.getAssignedVendor().getName() : "Vendor";
-        addTimeline(req, "Work step " + (stepIndex + 1) + " completed: " + stageName, vendorName, "Awaiting approval");
+        addTimeline(req, "Maintenance work marked as finished by vendor. Awaiting final approval.", vendorName, "Awaiting Final Approval");
+        
         return maintenanceRepository.save(req);
     }
 
-    // ─── RESIDENT or ADMIN: Approve or reject a work step ────────────────────
-
+    // ─── RESIDENT or ADMIN: Approve or reject work (Legacy/Placeholder) ───────
+    // This is now simplified as intermediate approvals are removed.
     @Transactional
     public MaintenanceRequest approveWorkStep(Long requestId, boolean approved, String approvedBy) {
         MaintenanceRequest req = findRequest(requestId);
-        String[] STAGES = {
-                "Work Initiated", "Site Visit Done", "Material Planning", "Material Approved",
-                "Material Procured", "Work in Progress", "Quality Check", "Testing",
-                "Snag / Issue Fixing", "Final Inspection", "Handover to Resident", "Work Completed"
-        };
-        int currentStep = req.getWorkStep();
-        String stageName = currentStep < STAGES.length ? STAGES[currentStep] : "Stage " + (currentStep + 1);
-
+        
         if (approved) {
             req.setPendingStepApproval(false);
-            int nextStep = currentStep + 1;
-            if (nextStep >= 12) {
-                // All stages done — mark work complete
-                req.setWorkStep(12);
+            
+            if (req.getWorkStep() == 12) {
+                // This was a completion approval
                 req.setStatus("work_completed");
                 req.setWorkCompletedAt(LocalDateTime.now());
-                addTimeline(req, "All work stages approved. Work completed!", approvedBy, null);
+                addTimeline(req, "Final work approved by " + approvedBy + ". Job marked as completed!", approvedBy, "Completed");
             } else {
-                // Advance to next stage
-                req.setWorkStep(nextStep);
-                String nextStageName = STAGES[nextStep];
-                addTimeline(req, "Stage " + (currentStep + 1) + " \"" + stageName + "\" approved by " + approvedBy + ". Proceed with Stage " + (nextStep + 1) + " \"" + nextStageName + "\".", approvedBy, null);
+                // This was an arrival approval (workStep 0 or null)
+                req.setStatus("work_in_progress");
+                addTimeline(req, "Arrival confirmed by " + approvedBy + ". Vendor started work.", approvedBy, "In Progress");
             }
         } else {
             req.setPendingStepApproval(false);
-            // Rejected — keep workStep the same so vendor retries same stage
-            addTimeline(req, "Stage " + (currentStep + 1) + " \"" + stageName + "\" rejected by " + approvedBy + " — vendor must redo.", approvedBy, null);
+            req.setStatus("work_in_progress");
+            addTimeline(req, "Work feedback/rejection by " + approvedBy + " — vendor must review.", approvedBy, "Revision Needed");
         }
         return maintenanceRepository.save(req);
     }

@@ -1,149 +1,131 @@
-import React, { useState, useRef, useEffect } from 'react';
+/**
+ * PaymentScreen.js
+ *
+ * A premium payment gateway simulation for the BS-Gated community.
+ * Handles Maintenance Bills, Utility Bills, and Amenity Bookings.
+ * Features: Multi-method selection, simulated processing, and success state sync.
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, SafeAreaView, StatusBar,
-  ScrollView, TextInput, Alert, ActivityIndicator, Animated, Modal,
+  View, Text, TouchableOpacity, ScrollView, StyleSheet,
+  SafeAreaView, StatusBar, TextInput, Modal, Alert, ActivityIndicator,
+  Dimensions, Animated, Easing
 } from 'react-native';
-import { useAuthStore } from '../../../store/AuthStore';
 import useResidentStore from '../../../store/residentStore';
-import { COLORS } from '../../../components/common/theme';
+import useSharedStore from '../../../store/appStore';
 import { useTheme } from '../../../hooks/useTheme';
+
+const { width, height } = Dimensions.get('window');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TEAL      = '#1A7A7A';
-const TEAL_DARK = '#155F5F';
-const TEAL_SOFT = '#E8F5F5';
-const TEAL_MID  = '#D0EEEE';
+const TEAL = '#1A7A7A';
+const TEAL_DARK = '#0D6E6E';
+const TEAL_SOFT = '#F0FAFA';
+const TEAL_MID = '#D0EEEE';
 const TEAL_TEXT = '#3D6E6E';
 
-const UPI_APPS = [
-  { id: 'gpay',    label: 'Google Pay',  emoji: '🔵', color: '#1A73E8' },
-  { id: 'phonepe', label: 'PhonePe',     emoji: '🟣', color: '#5F259F' },
-  { id: 'paytm',   label: 'Paytm',       emoji: '🔷', color: '#00BAF2' },
-  { id: 'bhim',    label: 'BHIM UPI',    emoji: '🟠', color: '#F37021' },
-  { id: 'other',   label: 'Other UPI',   emoji: '📲', color: '#37474F' },
-];
-
 const PAYMENT_METHODS = [
-  { key: 'upi',        label: 'UPI',               emoji: '📲', sub: 'Google Pay, PhonePe, Paytm, BHIM' },
-  { key: 'netbanking', label: 'Net Banking',        emoji: '🏦', sub: 'SBI, HDFC, ICICI, Axis & more' },
-  { key: 'card',       label: 'Debit / Credit Card', emoji: '💳', sub: 'Visa, Mastercard, RuPay' },
-  { key: 'wallet',     label: 'Wallet / Cash',       emoji: '👝', sub: 'Amazon Pay, Freecharge, etc.' },
+  { key: 'upi', label: 'UPI / Google Pay / PhonePe', sub: 'Instant & Secure', emoji: '📱' },
+  { key: 'card', label: 'Credit / Debit Card', sub: 'Visa, Mastercard, RuPay', emoji: '💳' },
+  { key: 'netbanking', label: 'Net Banking', sub: 'All major Indian banks', emoji: '🏦' },
+  { key: 'wallet', label: 'Wallets / Other', sub: 'Paytm, Amazon Pay, etc.', emoji: '👛' },
 ];
 
-const BANKS = ['State Bank of India', 'HDFC Bank', 'ICICI Bank', 'Axis Bank', 'Kotak Bank', 'Punjab National Bank', 'Bank of Baroda'];
+const UPI_APPS = [
+  { id: 'gpay', label: 'Google Pay', emoji: '🌀' },
+  { id: 'phonepe', label: 'PhonePe', emoji: '🟣' },
+  { id: 'paytm', label: 'Paytm', emoji: '🔵' },
+  { id: 'other', label: 'Other UPI ID', emoji: '🆔' },
+];
 
-function genTxnId() {
-  return 'TXN' + Date.now() + Math.random().toString(36).slice(2, 6).toUpperCase();
-}
+const BANKS = ['State Bank of India', 'HDFC Bank', 'ICICI Bank', 'Axis Bank', 'Kotak Mahindra Bank'];
 
-// ─── Processing Overlay ───────────────────────────────────────────────────────
+const genTxnId = () => `TXN-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
+// ─── Components ───────────────────────────────────────────────────────────────
+
+/** Processing Overlay - Shows during simulated bank communication */
 function ProcessingOverlay({ visible, amount }) {
-  const spin  = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.8)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.loop(
-        Animated.timing(spin, { toValue: 1, duration: 1000, useNativeDriver: true })
-      ).start();
-      Animated.spring(scale, { toValue: 1, useNativeDriver: true }).start();
-    } else {
-      spin.setValue(0);
-      scale.setValue(0.8);
-    }
-  }, [visible]);
-
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-
   if (!visible) return null;
   return (
     <Modal transparent visible={visible} animationType="fade">
       <View style={procStyles.overlay}>
-        <Animated.View style={[procStyles.card, { transform: [{ scale }] }]}>
-          <Animated.Text style={[{ fontSize: 40 }, { transform: [{ rotate }] }]}>⚙️</Animated.Text>
+        <View style={procStyles.card}>
+          <ActivityIndicator size="large" color={TEAL} />
           <Text style={procStyles.title}>Processing Payment</Text>
           <Text style={procStyles.amount}>₹{amount?.toLocaleString('en-IN')}</Text>
-          <Text style={procStyles.sub}>Please do not press back or close the app</Text>
-          <View style={procStyles.stepRow}>
-            {['Initiating', 'Verifying', 'Confirming'].map((step, i) => (
-              <View key={step} style={procStyles.step}>
-                <ActivityIndicator size="small" color={TEAL} />
-                <Text style={procStyles.stepText}>{step}</Text>
-              </View>
-            ))}
+          <Text style={procStyles.sub}>Please do not refresh or close the app. We are communicating with your bank securely...</Text>
+          <View style={procStyles.securityRow}>
+            <Text style={procStyles.securityText}>🔒 256-bit Encryption</Text>
           </View>
-        </Animated.View>
+        </View>
       </View>
     </Modal>
   );
 }
 
 const procStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 32, alignItems: 'center', width: '80%', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 10 },
-  title: { fontSize: 18, fontWeight: '800', color: '#1A2E2E', marginTop: 16, marginBottom: 6 },
-  amount: { fontSize: 28, fontWeight: '900', color: TEAL, marginBottom: 8 },
-  sub: { fontSize: 12, color: '#94A3B8', textAlign: 'center', lineHeight: 18, marginBottom: 20 },
-  stepRow: { flexDirection: 'row', gap: 16 },
-  step: { alignItems: 'center', gap: 4 },
-  stepText: { fontSize: 10, color: '#64748B', fontWeight: '600' },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  card: { backgroundColor: '#FFF', borderRadius: 24, padding: 30, alignItems: 'center', width: '100%', maxWidth: 340 },
+  title: { fontSize: 18, fontWeight: '800', color: '#1A2E2E', marginTop: 20 },
+  amount: { fontSize: 28, fontWeight: '900', color: TEAL, marginVertical: 10 },
+  sub: { fontSize: 13, color: '#64748B', textAlign: 'center', lineHeight: 20 },
+  securityRow: { marginTop: 20, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#F1F5F9', width: '100%', alignItems: 'center' },
+  securityText: { fontSize: 11, fontWeight: '700', color: '#94A3B8' },
 });
 
-// ─── Success Screen ───────────────────────────────────────────────────────────
-
+/** Success Modal - Final state after payment */
 function SuccessModal({ visible, bill, txnId, method, onDone }) {
-  const scale = useRef(new Animated.Value(0.5)).current;
+  const scale = React.useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
-      Animated.spring(scale, { toValue: 1, tension: 60, friction: 6, useNativeDriver: true }).start();
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, tension: 50, friction: 7 }).start();
     } else {
-      scale.setValue(0.5);
+      scale.setValue(0);
     }
   }, [visible]);
 
   if (!visible) return null;
+
+  const isMaintenance = bill?.type === 'maintenance' || bill?.maintenanceRequestId;
+
   return (
-    <Modal transparent visible={visible} animationType="fade">
+    <Modal transparent visible={visible} animationType="none">
       <View style={successStyles.overlay}>
         <Animated.View style={[successStyles.card, { transform: [{ scale }] }]}>
-          {/* Success icon */}
           <View style={successStyles.iconCircle}>
-            <Text style={{ fontSize: 48 }}>✅</Text>
+            <Text style={successStyles.iconText}>🎉</Text>
           </View>
-          <Text style={successStyles.title}>Payment Successful!</Text>
-          <Text style={successStyles.sub}>Your dues have been cleared. Thank you!</Text>
+          <Text style={successStyles.title}>Payment Received!</Text>
+          <Text style={successStyles.sub}>Thank you! Your payment of ₹{bill?.total?.toLocaleString('en-IN')} has been successfully processed and the maintenance record updated.</Text>
 
-          {/* Receipt preview */}
           <View style={successStyles.receipt}>
             <View style={successStyles.receiptRow}>
-              <Text style={successStyles.receiptLabel}>Amount Paid</Text>
-              <Text style={successStyles.receiptValue}>₹{bill?.total?.toLocaleString('en-IN')}</Text>
-            </View>
-            <View style={successStyles.receiptRow}>
-              <Text style={successStyles.receiptLabel}>Invoice</Text>
-              <Text style={successStyles.receiptValue}>{bill?.id}</Text>
-            </View>
-            <View style={successStyles.receiptRow}>
-              <Text style={successStyles.receiptLabel}>Period</Text>
-              <Text style={successStyles.receiptValue}>{bill?.month}</Text>
-            </View>
-            <View style={successStyles.receiptRow}>
-              <Text style={successStyles.receiptLabel}>Payment Mode</Text>
-              <Text style={successStyles.receiptValue}>{method}</Text>
-            </View>
-            <View style={[successStyles.receiptRow, { borderBottomWidth: 0 }]}>
               <Text style={successStyles.receiptLabel}>Transaction ID</Text>
-              <Text style={[successStyles.receiptValue, { fontFamily: 'monospace', fontSize: 11 }]}>{txnId}</Text>
+              <Text style={successStyles.receiptValue}>{txnId || 'N/A'}</Text>
+            </View>
+            <View style={successStyles.receiptRow}>
+              <Text style={successStyles.receiptLabel}>New Status</Text>
+              <Text style={[successStyles.receiptValue, { color: '#059669' }]}>✅ Payment Received</Text>
+            </View>
+            <View style={successStyles.receiptRow}>
+              <Text style={successStyles.receiptLabel}>Date</Text>
+              <Text style={successStyles.receiptValue}>{new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</Text>
             </View>
           </View>
 
-          <Text style={successStyles.note}>A receipt has been sent to your registered email.</Text>
+          {isMaintenance && (
+            <View style={successStyles.statusUpdateBox}>
+              <Text style={successStyles.statusUpdateText}>🏁 Maintenance Lifecycle: Completed</Text>
+              <Text style={{ fontSize: 11, color: TEAL_TEXT, textAlign: 'center', marginTop: 2 }}>The vendor and admin have been notified of your payment.</Text>
+            </View>
+          )}
 
           <TouchableOpacity style={successStyles.doneBtn} onPress={onDone}>
-            <Text style={successStyles.doneBtnText}>Back to Bills →</Text>
+            <Text style={successStyles.doneBtnText}>Back to Dashboard</Text>
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -152,69 +134,96 @@ function SuccessModal({ visible, bill, txnId, method, onDone }) {
 }
 
 const successStyles = StyleSheet.create({
-  overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  card:         { backgroundColor: '#FFFFFF', borderRadius: 24, padding: 28, width: '100%', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.2, shadowRadius: 20, elevation: 12 },
-  iconCircle:   { width: 80, height: 80, borderRadius: 40, backgroundColor: '#E8F5E9', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  title:        { fontSize: 22, fontWeight: '900', color: '#1A2E2E', marginBottom: 6 },
-  sub:          { fontSize: 14, color: '#7A9E9E', marginBottom: 20, textAlign: 'center' },
-  receipt:      { width: '100%', backgroundColor: TEAL_SOFT, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: TEAL_MID, marginBottom: 14 },
-  receiptRow:   { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: TEAL_MID },
-  receiptLabel: { fontSize: 12, color: TEAL_TEXT, fontWeight: '600' },
-  receiptValue: { fontSize: 12, color: '#1A2E2E', fontWeight: '800', maxWidth: '55%', textAlign: 'right' },
-  note:         { fontSize: 11, color: '#94A3B8', textAlign: 'center', marginBottom: 20 },
-  doneBtn:      { backgroundColor: TEAL, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 40, width: '100%', alignItems: 'center' },
-  doneBtnText:  { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  overlay: { flex: 1, backgroundColor: 'rgba(26, 122, 122, 0.9)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  card: { backgroundColor: '#FFF', borderRadius: 28, padding: 30, alignItems: 'center', width: '100%', maxWidth: 360 },
+  iconCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#22C55E', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  iconText: { color: '#FFF', fontSize: 40, fontWeight: 'bold' },
+  title: { fontSize: 24, fontWeight: '900', color: '#1A2E2E', marginBottom: 8 },
+  sub: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 24 },
+  receipt: { backgroundColor: '#F8FAFC', borderRadius: 16, width: '100%', padding: 16, marginBottom: 20 },
+  receiptRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  receiptLabel: { fontSize: 12, color: '#94A3B8', fontWeight: '600' },
+  receiptValue: { fontSize: 12, color: '#1A2E2E', fontWeight: '800' },
+  statusUpdateBox: { backgroundColor: TEAL_SOFT, padding: 12, borderRadius: 12, width: '100%', marginBottom: 24, borderWidth: 1, borderColor: TEAL_MID },
+  statusUpdateText: { fontSize: 13, color: TEAL, fontWeight: '700', textAlign: 'center' },
+  doneBtn: { backgroundColor: TEAL, borderRadius: 16, paddingVertical: 16, width: '100%', alignItems: 'center' },
+  doneBtnText: { color: '#FFF', fontWeight: '800', fontSize: 16 },
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function PaymentScreen({ navigation, route }) {
-  const theme   = useTheme();
-  const { bill } = route.params || {};
-  const payBill = useResidentStore(s => s.payBill);
+  const bill = route.params?.bill;
+  const { payBill } = useResidentStore();
+  const displayAmount = bill?.total || bill?.amount || 0;
 
-  const [method,     setMethod]     = useState('upi');
-  const [upiApp,     setUpiApp]     = useState('gpay');
-  const [upiId,      setUpiId]      = useState('');
-  const [selectedBank, setSelectedBank] = useState('State Bank of India');
-  const [cardNum,    setCardNum]    = useState('');
-  const [cardName,   setCardName]   = useState('');
+  const [method, setMethod] = useState('upi');
+  const [upiApp, setUpiApp] = useState('gpay');
+  const [upiId, setUpiId] = useState('');
+  const [cardNum, setCardNum] = useState('');
+  const [cardName, setCardName] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCVV,    setCardCVV]    = useState('');
-  const [processing, setProcessing] = useState(false);
-  const [success,    setSuccess]    = useState(false);
-  const [txnId,      setTxnId]      = useState('');
+  const [cardCVV, setCardCVV] = useState('');
+  const [selectedBank, setSelectedBank] = useState(BANKS[0]);
 
-  if (!bill) return null;
+  const [processing, setProcessing] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [txnId, setTxnId] = useState('');
 
   const selectedMethod = PAYMENT_METHODS.find(m => m.key === method);
 
+  const formatCardNumber = (val) => {
+    const v = val.replace(/\D/g, '').slice(0, 16);
+    return v.match(/.{1,4}/g)?.join(' ') || v;
+  };
+
+  const formatExpiry = (val) => {
+    const v = val.replace(/\D/g, '').slice(0, 4);
+    if (v.length >= 3) return v.slice(0, 2) + '/' + v.slice(2);
+    return v;
+  };
+
   const handlePay = () => {
-    // Basic validation
-    if (method === 'upi' && upiApp === 'other' && !upiId.trim()) {
-      Alert.alert('Enter UPI ID', 'Please enter your UPI ID to proceed.'); return;
+    // Basic Validation
+    if (method === 'upi' && upiApp === 'other' && !upiId.includes('@')) {
+      Alert.alert('Invalid UPI ID', 'Please enter a valid UPI ID.');
+      return;
     }
-    if (method === 'card') {
-      if (cardNum.replace(/\s/g, '').length < 16) { Alert.alert('Invalid Card', 'Please enter a valid 16-digit card number.'); return; }
-      if (!cardName.trim())  { Alert.alert('Missing Info', 'Please enter cardholder name.'); return; }
-      if (cardExpiry.length < 5) { Alert.alert('Invalid Expiry', 'Please enter expiry as MM/YY.'); return; }
-      if (cardCVV.length < 3)    { Alert.alert('Invalid CVV', 'Please enter a valid CVV.'); return; }
+    if (method === 'card' && (cardNum.length < 16 || cardExpiry.length < 5 || cardCVV.length < 3)) {
+      Alert.alert('Incomplete Details', 'Please enter all card details correctly.');
+      return;
     }
 
     Alert.alert(
       'Confirm Payment',
-      `Pay ₹${bill.total.toLocaleString('en-IN')} via ${selectedMethod?.label}?`,
+      `Pay ₹${displayAmount.toLocaleString('en-IN')} via ${selectedMethod?.label}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Confirm & Pay',
-          style: 'default',
           onPress: () => {
             setProcessing(true);
             // Simulate payment gateway latency
-            setTimeout(() => {
+            setTimeout(async () => {
+              // 1. Process local billing record
               const newTxn = payBill(bill.id) || genTxnId();
               setTxnId(newTxn);
+
+              // 2. Fetch current bill state to ensure we have the maintenance request ID
+              const currentBill = useResidentStore.getState().bills.find(b => b.id === bill.id) || bill;
+
+              // 3. Sync with maintenance workflow if applicable
+              if (currentBill.type === 'maintenance' && currentBill.maintenanceRequestId) {
+                try {
+                  const appStore = useSharedStore.getState();
+                  if (appStore && appStore.residentPay) {
+                    await appStore.residentPay(currentBill.maintenanceRequestId);
+                  }
+                } catch (e) {
+                  console.error('Failed to sync maintenance payment:', e);
+                }
+              }
+
               setProcessing(false);
               setSuccess(true);
             }, 2500);
@@ -224,162 +233,110 @@ export default function PaymentScreen({ navigation, route }) {
     );
   };
 
-  const formatCardNumber = (text) => {
-    const digits = text.replace(/\D/g, '').slice(0, 16);
-    return digits.replace(/(.{4})/g, '$1 ').trim();
-  };
-  const formatExpiry = (text) => {
-    const digits = text.replace(/\D/g, '').slice(0, 4);
-    if (digits.length > 2) return digits.slice(0, 2) + '/' + digits.slice(2);
-    return digits;
-  };
-
   return (
     <SafeAreaView style={styles.screen}>
-      <StatusBar barStyle="light-content" backgroundColor={TEAL_DARK} />
+      <StatusBar barStyle="light-content" backgroundColor={TEAL} />
 
-      {/* ── Header ── */}
+      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backText}>← Back</Text>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <Text style={styles.backText}>← Cancel</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Make Payment</Text>
+        <Text style={styles.headerTitle}>Secure Payment</Text>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-
-        {/* ── Amount Card ── */}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20 }}>
+        {/* Amount Card */}
         <View style={styles.amountCard}>
-          <Text style={styles.amountLabel}>Total Amount Due</Text>
-          <Text style={styles.amountValue}>₹{bill.total.toLocaleString('en-IN')}</Text>
-          <Text style={styles.amountSub}>{bill.month}  ·  Unit {bill.unit}  ·  {bill.id}</Text>
-
-          {/* Charge mini-breakdown */}
+          <Text style={styles.amountLabel}>PAYING TO BS GATED COMMUNITY</Text>
+          <Text style={styles.amountValue}>₹{displayAmount.toLocaleString('en-IN')}</Text>
+          <Text style={styles.amountSub}>Bill ID: {bill?.id || 'BILL-AUTO'}</Text>
           <View style={styles.breakdownRow}>
-            {(bill.items || []).slice(0, 3).map((item, i) => (
-              <View key={i} style={styles.breakdownChip}>
-                <Text style={styles.breakdownChipText}>{item.label}: ₹{item.amount.toLocaleString('en-IN')}</Text>
-              </View>
-            ))}
+            <View style={styles.breakdownChip}>
+              <Text style={styles.breakdownChipText}>{bill?.month || bill?.type || 'General Payment'}</Text>
+            </View>
+            <View style={styles.breakdownChip}>
+              <Text style={styles.breakdownChipText}>Unit {bill?.unit || 'N/A'}</Text>
+            </View>
           </View>
         </View>
 
-        {/* ── Payment Method Selection ── */}
+        {/* Payment Methods */}
         <Text style={styles.sectionLabel}>SELECT PAYMENT METHOD</Text>
-        {PAYMENT_METHODS.map(m => (
-          <TouchableOpacity
-            key={m.key}
-            style={[styles.methodRow, method === m.key && styles.methodRowActive]}
-            onPress={() => setMethod(m.key)}
-          >
-            <Text style={styles.methodEmoji}>{m.emoji}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.methodLabel, method === m.key && { color: TEAL }]}>{m.label}</Text>
-              <Text style={styles.methodSub}>{m.sub}</Text>
-            </View>
-            <View style={[styles.radio, method === m.key && styles.radioActive]}>
-              {method === m.key && <View style={styles.radioDot} />}
-            </View>
-          </TouchableOpacity>
-        ))}
-
-        {/* ── UPI Sub-options ── */}
-        {method === 'upi' && (
-          <View style={styles.subSection}>
-            <Text style={styles.subSectionTitle}>Choose UPI App</Text>
-            <View style={styles.upiGrid}>
-              {UPI_APPS.map(app => (
-                <TouchableOpacity
-                  key={app.id}
-                  style={[styles.upiChip, upiApp === app.id && styles.upiChipActive]}
-                  onPress={() => setUpiApp(app.id)}
-                >
-                  <Text style={styles.upiChipEmoji}>{app.emoji}</Text>
-                  <Text style={[styles.upiChipText, upiApp === app.id && { color: TEAL }]}>{app.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            {upiApp === 'other' && (
-              <TextInput
-                style={styles.input}
-                placeholder="Enter UPI ID (e.g. name@upi)"
-                value={upiId}
-                onChangeText={setUpiId}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                placeholderTextColor="#94A3B8"
-              />
-            )}
-            <View style={styles.infoStrip}>
-              <Text style={styles.infoStripText}>
-                🔒 You will be redirected to {UPI_APPS.find(a => a.id === upiApp)?.label} to complete payment securely.
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* ── Net Banking Sub-options ── */}
-        {method === 'netbanking' && (
-          <View style={styles.subSection}>
-            <Text style={styles.subSectionTitle}>Select Your Bank</Text>
-            {BANKS.map(bank => (
-              <TouchableOpacity
-                key={bank}
-                style={[styles.bankRow, selectedBank === bank && styles.bankRowActive]}
-                onPress={() => setSelectedBank(bank)}
-              >
-                <Text style={styles.bankIcon}>🏦</Text>
-                <Text style={[styles.bankName, selectedBank === bank && { color: TEAL, fontWeight: '800' }]}>{bank}</Text>
-                {selectedBank === bank && <Text style={{ color: TEAL }}>✓</Text>}
-              </TouchableOpacity>
-            ))}
-            <View style={styles.infoStrip}>
-              <Text style={styles.infoStripText}>🔒 You'll be redirected to your bank's secure login page.</Text>
-            </View>
-          </View>
-        )}
-
-        {/* ── Card Sub-options ── */}
-        {method === 'card' && (
-          <View style={styles.subSection}>
-            <Text style={styles.subSectionTitle}>Card Details</Text>
-            <Text style={styles.fieldLabel}>Card Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="1234 5678 9012 3456"
-              value={cardNum}
-              onChangeText={t => setCardNum(formatCardNumber(t))}
-              keyboardType="numeric"
-              maxLength={19}
-              placeholderTextColor="#94A3B8"
-            />
-            <Text style={styles.fieldLabel}>Cardholder Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="As printed on card"
-              value={cardName}
-              onChangeText={setCardName}
-              autoCapitalize="words"
-              placeholderTextColor="#94A3B8"
-            />
-            <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={styles.methodsList}>
+          {PAYMENT_METHODS.map(m => (
+            <TouchableOpacity
+              key={m.key}
+              style={[styles.methodRow, method === m.key && styles.methodRowActive]}
+              onPress={() => setMethod(m.key)}
+            >
+              <Text style={styles.methodEmoji}>{m.emoji}</Text>
               <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>Expiry (MM/YY)</Text>
+                <Text style={styles.methodLabel}>{m.label}</Text>
+                <Text style={styles.methodSub}>{m.sub}</Text>
+              </View>
+              <View style={[styles.radio, method === m.key && styles.radioActive]}>
+                {method === m.key && <View style={styles.radioDot} />}
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* ── Sub-sections ── */}
+        <View style={{ marginTop: 10 }}>
+          {method === 'upi' && (
+            <View style={styles.subSection}>
+              <Text style={styles.subSectionTitle}>Choose UPI App</Text>
+              <View style={styles.upiGrid}>
+                {UPI_APPS.map(app => (
+                  <TouchableOpacity
+                    key={app.id}
+                    style={[styles.upiChip, upiApp === app.id && styles.upiChipActive]}
+                    onPress={() => setUpiApp(app.id)}
+                  >
+                    <Text style={styles.upiChipEmoji}>{app.emoji}</Text>
+                    <Text style={[styles.upiChipText, upiApp === app.id && { color: TEAL }]}>{app.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {upiApp === 'other' && (
                 <TextInput
                   style={styles.input}
-                  placeholder="MM/YY"
+                  placeholder="Enter UPI ID (e.g. name@upi)"
+                  value={upiId}
+                  onChangeText={setUpiId}
+                  autoCapitalize="none"
+                  placeholderTextColor="#94A3B8"
+                />
+              )}
+            </View>
+          )}
+
+          {method === 'card' && (
+            <View style={styles.subSection}>
+              <Text style={styles.subSectionTitle}>Card Details</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Card Number"
+                value={cardNum}
+                onChangeText={t => setCardNum(formatCardNumber(t))}
+                keyboardType="numeric"
+                maxLength={19}
+                placeholderTextColor="#94A3B8"
+              />
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+                <TextInput
+                  style={[styles.input, { flex: 2 }]}
+                  placeholder="Expiry (MM/YY)"
                   value={cardExpiry}
                   onChangeText={t => setCardExpiry(formatExpiry(t))}
                   keyboardType="numeric"
                   maxLength={5}
                   placeholderTextColor="#94A3B8"
                 />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.fieldLabel}>CVV</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="•••"
+                  style={[styles.input, { flex: 1 }]}
+                  placeholder="CVV"
                   value={cardCVV}
                   onChangeText={t => setCardCVV(t.replace(/\D/g, '').slice(0, 4))}
                   keyboardType="numeric"
@@ -389,24 +346,26 @@ export default function PaymentScreen({ navigation, route }) {
                 />
               </View>
             </View>
-            <View style={styles.infoStrip}>
-              <Text style={styles.infoStripText}>🔒 256-bit SSL encrypted. Your card details are never stored.</Text>
-            </View>
-          </View>
-        )}
+          )}
 
-        {/* ── Wallet info ── */}
-        {method === 'wallet' && (
-          <View style={styles.subSection}>
-            <View style={styles.infoStrip}>
-              <Text style={styles.infoStripText}>
-                💡 Select this if you are paying via cash to society office or any registered wallet. A manual receipt will be issued by the admin.
-              </Text>
+          {method === 'netbanking' && (
+            <View style={styles.subSection}>
+              <Text style={styles.subSectionTitle}>Select Bank</Text>
+              {BANKS.map(bank => (
+                <TouchableOpacity
+                  key={bank}
+                  style={[styles.bankRow, selectedBank === bank && styles.bankRowActive]}
+                  onPress={() => setSelectedBank(bank)}
+                >
+                  <Text style={styles.bankName}>{bank}</Text>
+                  {selectedBank === bank && <Text style={{ color: TEAL, fontWeight: '800' }}>✓</Text>}
+                </TouchableOpacity>
+              ))}
             </View>
-          </View>
-        )}
+          )}
+        </View>
 
-        {/* ── Security badges ── */}
+        {/* Security badges */}
         <View style={styles.securityRow}>
           {['🔒 SSL Secured', '🏦 RBI Compliant', '✅ PCI-DSS'].map(badge => (
             <View key={badge} style={styles.securityBadge}>
@@ -415,30 +374,28 @@ export default function PaymentScreen({ navigation, route }) {
           ))}
         </View>
 
-        {/* ── Pay Button ── */}
-        <TouchableOpacity style={styles.payBtn} onPress={handlePay} activeOpacity={0.85}>
-          <Text style={styles.payBtnText}>🔐 Pay ₹{bill.total.toLocaleString('en-IN')} Securely</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.footerNote}>
-          By paying, you agree to our payment terms. Refunds, if applicable, will be processed within 5–7 working days.
-        </Text>
-
+        {/* Pay Button Area */}
+        <View style={styles.payActionArea}>
+          <TouchableOpacity style={styles.payBtn} onPress={handlePay} activeOpacity={0.85}>
+            <Text style={styles.payBtnText}>🔐 Pay ₹{displayAmount.toLocaleString('en-IN')} Securely</Text>
+          </TouchableOpacity>
+          <Text style={styles.footerNote}>
+            Your payment is secure. We use bank-grade encryption to protect your data.
+          </Text>
+        </View>
         <View style={{ height: 40 }} />
       </ScrollView>
 
-      {/* Processing overlay */}
-      <ProcessingOverlay visible={processing} amount={bill.total} />
-
-      {/* Success modal */}
+      {/* Overlays */}
+      <ProcessingOverlay visible={processing} amount={displayAmount} />
       <SuccessModal
         visible={success}
-        bill={bill}
+        bill={{ ...bill, total: displayAmount }}
         txnId={txnId}
         method={selectedMethod?.label}
         onDone={() => {
           setSuccess(false);
-          navigation.navigate('ResidentBilling');
+          navigation.goBack();
         }}
       />
     </SafeAreaView>
@@ -446,113 +403,43 @@ export default function PaymentScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#F5F7FA' },
-
-  // Header
-  header: {
-    backgroundColor: TEAL,
-    padding: 20,
-    paddingTop: 40,
-  },
-  backBtn:     { marginBottom: 8 },
-  backText:    { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
-
-  // Amount card
-  amountCard: {
-    backgroundColor: TEAL,
-    borderRadius: 20,
-    padding: 22,
-    marginBottom: 20,
-    shadowColor: TEAL_DARK,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  amountLabel:  { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.65)', marginBottom: 4 },
-  amountValue:  { fontSize: 38, fontWeight: '900', color: '#FFFFFF' },
-  amountSub:    { fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 4, marginBottom: 12 },
-  breakdownRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  breakdownChip:{ backgroundColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
-  breakdownChipText: { fontSize: 11, color: '#FFFFFF', fontWeight: '700' },
-
-  // Section label
-  sectionLabel: { fontSize: 11, fontWeight: '800', color: '#94A3B8', letterSpacing: 0.8, marginBottom: 10 },
-
-  // Payment method row
-  methodRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: TEAL_MID,
-  },
-  methodRowActive:  { borderColor: TEAL, backgroundColor: TEAL_SOFT, borderWidth: 2 },
-  methodEmoji:      { fontSize: 24, marginRight: 12 },
-  methodLabel:      { fontSize: 14, fontWeight: '700', color: '#1A2E2E' },
-  methodSub:        { fontSize: 12, color: '#94A3B8', marginTop: 2 },
-  radio:            { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: TEAL_MID, alignItems: 'center', justifyContent: 'center' },
-  radioActive:      { borderColor: TEAL },
-  radioDot:         { width: 11, height: 11, borderRadius: 6, backgroundColor: TEAL },
-
-  // Sub-section
-  subSection: { backgroundColor: '#FFFFFF', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: TEAL_MID },
-  subSectionTitle: { fontSize: 12, fontWeight: '800', color: '#94A3B8', letterSpacing: 0.5, marginBottom: 10 },
-
-  // UPI grid
+  screen: { flex: 1, backgroundColor: '#F8FAFC' },
+  header: { backgroundColor: TEAL, padding: 20, paddingTop: 40 },
+  backBtn: { marginBottom: 4 },
+  backText: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
+  headerTitle: { fontSize: 20, fontWeight: '800', color: '#FFF' },
+  amountCard: { backgroundColor: TEAL, borderRadius: 20, padding: 20, marginBottom: 20 },
+  amountLabel: { fontSize: 10, color: 'rgba(255,255,255,0.6)', fontWeight: '800', marginBottom: 4 },
+  amountValue: { fontSize: 32, fontWeight: '900', color: '#FFF' },
+  amountSub: { fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 4, marginBottom: 12 },
+  breakdownRow: { flexDirection: 'row', gap: 8 },
+  breakdownChip: { backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
+  breakdownChipText: { fontSize: 11, color: '#FFF', fontWeight: '700' },
+  sectionLabel: { fontSize: 11, fontWeight: '800', color: '#94A3B8', letterSpacing: 1, marginBottom: 10, marginTop: 10 },
+  methodRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 14, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#E2E8F0' },
+  methodRowActive: { borderColor: TEAL, borderWidth: 2, backgroundColor: TEAL_SOFT },
+  methodEmoji: { fontSize: 24, marginRight: 12 },
+  methodLabel: { fontSize: 14, fontWeight: '700', color: '#1A2E2E' },
+  methodSub: { fontSize: 11, color: '#94A3B8', marginTop: 2 },
+  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#E2E8F0', alignItems: 'center', justifyContent: 'center' },
+  radioActive: { borderColor: TEAL },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: TEAL },
+  subSection: { backgroundColor: '#FFF', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: TEAL_MID },
+  subSectionTitle: { fontSize: 11, fontWeight: '800', color: '#94A3B8', marginBottom: 10 },
   upiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
-  upiChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: TEAL_SOFT, borderWidth: 1, borderColor: TEAL_MID, alignItems: 'center', minWidth: 80 },
-  upiChipActive: { borderColor: TEAL, borderWidth: 2, backgroundColor: '#E0F7F7' },
-  upiChipEmoji: { fontSize: 20, marginBottom: 3 },
-  upiChipText: { fontSize: 11, fontWeight: '700', color: TEAL_TEXT },
-
-  // Bank row
-  bankRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F0FAFA', gap: 10 },
-  bankRowActive: { backgroundColor: TEAL_SOFT, borderRadius: 10, paddingHorizontal: 8 },
-  bankIcon: { fontSize: 18 },
-  bankName: { flex: 1, fontSize: 14, color: '#1A2E2E', fontWeight: '600' },
-
-  // Field label & input
-  fieldLabel: { fontSize: 12, fontWeight: '700', color: TEAL_TEXT, marginBottom: 5, marginTop: 6 },
-  input: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: TEAL_MID,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: '#1A2E2E',
-    marginBottom: 2,
-  },
-
-  // Info strip
-  infoStrip: { backgroundColor: TEAL_SOFT, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: TEAL_MID, marginTop: 8 },
-  infoStripText: { fontSize: 12, color: TEAL_TEXT, lineHeight: 18 },
-
-  // Security badges
-  securityRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginVertical: 16 },
-  securityBadge: { backgroundColor: '#F0FFF4', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: '#A7F3D0' },
-  securityBadgeText: { fontSize: 11, fontWeight: '700', color: '#065F46' },
-
-  // Pay button
-  payBtn: {
-    backgroundColor: TEAL,
-    borderRadius: 16,
-    paddingVertical: 18,
-    alignItems: 'center',
-    shadowColor: TEAL_DARK,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
-    marginBottom: 12,
-  },
-  payBtnText: { color: '#FFFFFF', fontSize: 17, fontWeight: '900' },
-
-  footerNote: { fontSize: 11, color: '#94A3B8', textAlign: 'center', lineHeight: 17 },
+  upiChip: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10, backgroundColor: TEAL_SOFT, borderWidth: 1, borderColor: TEAL_MID, alignItems: 'center', minWidth: 70 },
+  upiChipActive: { borderColor: TEAL, backgroundColor: '#FFF' },
+  upiChipEmoji: { fontSize: 18, marginBottom: 2 },
+  upiChipText: { fontSize: 10, fontWeight: '700', color: TEAL_TEXT },
+  input: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: TEAL_MID, borderRadius: 12, padding: 12, fontSize: 14, color: '#1A2E2E' },
+  bankRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  bankRowActive: { backgroundColor: TEAL_SOFT, paddingHorizontal: 8, borderRadius: 8 },
+  bankName: { fontSize: 13, color: '#1A2E2E', fontWeight: '600' },
+  securityRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginVertical: 20 },
+  securityBadge: { backgroundColor: '#F0FFF4', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: '#BBF7D0' },
+  securityBadgeText: { fontSize: 10, fontWeight: '700', color: '#166534' },
+  payActionArea: { marginTop: 10 },
+  payBtn: { backgroundColor: TEAL, borderRadius: 16, paddingVertical: 18, alignItems: 'center', shadowColor: TEAL, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+  payBtnText: { color: '#FFF', fontSize: 16, fontWeight: '900' },
+  footerNote: { fontSize: 11, color: '#94A3B8', textAlign: 'center', marginTop: 16, lineHeight: 16 },
 });

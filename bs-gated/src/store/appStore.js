@@ -31,6 +31,22 @@ const getSecurityStore = () => require('./securityStore').default;
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const now = () => new Date().toISOString();
 const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+const mapMaintenance = (r) => ({
+  ...r,
+  residentId: r.resident?.id,
+  residentName: r.resident?.name,
+  unit: r.resident?.unit,
+  assignedVendorId: r.assignedVendor?.id,
+  assignedVendorName: r.assignedVendor?.name,
+  _workStep: r.workStep,
+  quote: r.quote ? {
+    id: r.quote.id,
+    amount: r.quote.amount,
+    description: r.quote.description,
+    eta: r.quote.eta,
+    estimatedDays: r.quote.estimatedDays
+  } : null
+});
 
 // ─── Seed: Marketplace Products ───────────────────────────────────────────────
 const SEED_PRODUCTS = [
@@ -458,21 +474,7 @@ const useAppStore = create(
           else data = await MaintenanceApi.getAllRequests();
 
           if (data && Array.isArray(data)) {
-            const mapped = data.map(r => ({
-              ...r,
-              residentId: r.resident?.id,
-              residentName: r.resident?.name,
-              unit: r.resident?.unit,
-              assignedVendorId: r.assignedVendor?.id,
-              assignedVendorName: r.assignedVendor?.name,
-              quote: r.quote ? {
-                id: r.quote.id,
-                amount: r.quote.amount,
-                description: r.quote.description,
-                eta: r.quote.eta,
-                estimatedDays: r.quote.estimatedDays
-              } : null
-            }));
+            const mapped = data.map(mapMaintenance);
             set({ maintenanceRequests: mapped });
           }
         } catch (error) { console.error('Fetch Maintenance Error:', error); }
@@ -492,12 +494,7 @@ const useAppStore = create(
           });
           if (savedReq && savedReq.id) {
             set(s => ({
-              maintenanceRequests: [{
-                ...savedReq,
-                residentId: savedReq.resident?.id,
-                residentName: savedReq.resident?.name,
-                unit: savedReq.resident?.unit
-              }, ...s.maintenanceRequests]
+              maintenanceRequests: [mapMaintenance(savedReq), ...s.maintenanceRequests]
             }));
             return savedReq;
           }
@@ -543,13 +540,7 @@ const useAppStore = create(
           const updatedReq = await MaintenanceApi.assignVendor(requestId, vendorId);
           if (updatedReq) {
             set(s => ({
-              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? {
-                ...updatedReq,
-                residentId: updatedReq.resident?.id,
-                residentName: updatedReq.resident?.name,
-                assignedVendorId: updatedReq.assignedVendor?.id,
-                assignedVendorName: updatedReq.assignedVendor?.name
-              } : r),
+              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? mapMaintenance(updatedReq) : r),
             }));
 
             // 🔔 Notify vendor
@@ -626,13 +617,7 @@ const useAppStore = create(
 
           if (updatedReq) {
             set(s => ({
-              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? {
-                ...updatedReq,
-                residentId: updatedReq.resident?.id,
-                residentName: updatedReq.resident?.name,
-                assignedVendorId: updatedReq.assignedVendor?.id,
-                assignedVendorName: updatedReq.assignedVendor?.name
-              } : r),
+              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? mapMaintenance(updatedReq) : r),
             }));
 
             // 🔔 Notify admin — quote is waiting for review
@@ -654,17 +639,11 @@ const useAppStore = create(
       vendorMarkWorkComplete: async (requestId) => {
         try {
           const { MaintenanceApi } = require('../services/maintenanceApi');
-          // For final completion, we use the step API with the final index (11)
-          const updatedReq = await MaintenanceApi.vendorCompleteStep(requestId, 11);
+          // Move directly to completed
+          const updatedReq = await MaintenanceApi.vendorCompleteStep(requestId, 12);
           if (updatedReq) {
             set(s => ({
-              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? {
-                ...updatedReq,
-                residentId: updatedReq.resident?.id,
-                residentName: updatedReq.resident?.name,
-                assignedVendorId: updatedReq.assignedVendor?.id,
-                assignedVendorName: updatedReq.assignedVendor?.name
-              } : r),
+              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? mapMaintenance(updatedReq) : r),
             }));
 
             // 🔔 Notify admin
@@ -672,7 +651,7 @@ const useAppStore = create(
               getAdminStore().getState().addNotification({
                 type: 'maintenance',
                 title: '🏁 Work Completed!',
-                body: `${updatedReq.assignedVendor?.name || 'Vendor'} has completed all work at Unit ${updatedReq.resident?.unit || ''} (${updatedReq.category || ''}). Vendor will request payment soon.`,
+                body: `${updatedReq.assignedVendor?.name || 'Vendor'} has completed work at Unit ${updatedReq.resident?.unit || ''} (${updatedReq.category || ''}). Vendor will request payment soon.`,
                 requestId,
               });
             } catch (e) { /* ignore */ }
@@ -691,152 +670,42 @@ const useAppStore = create(
         }
       },
 
-      // Vendor advances one work stage — notifies admin + resident each time
-      vendorAdvanceWorkStep: async (requestId) => {
-        try {
-          const { MaintenanceApi } = require('../services/maintenanceApi');
-          const req = get().maintenanceRequests.find(r => r.id === requestId);
-          if (!req) return;
-          const currentStep = req.workStep || 0;
-          const nextStep = currentStep + 1;
+      // Simplified aliases for UI compatibility — now just marks work as complete
+      vendorAdvanceWorkStep: async (requestId) => get().vendorMarkWorkComplete(requestId),
+      vendorAdvanceStep:     async (requestId) => get().vendorMarkWorkComplete(requestId),
+      vendorRequestStepApproval: async (requestId) => get().vendorMarkWorkComplete(requestId),
 
-          if (nextStep >= 12) {
-            get().vendorMarkWorkComplete(requestId);
-            return;
-          }
-
-          const updatedReq = await MaintenanceApi.vendorCompleteStep(requestId, currentStep);
-          if (updatedReq) {
-            set(s => ({
-              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? {
-                ...updatedReq,
-                residentId: updatedReq.resident?.id,
-                residentName: updatedReq.resident?.name,
-                assignedVendorId: updatedReq.assignedVendor?.id,
-                assignedVendorName: updatedReq.assignedVendor?.name
-              } : r),
-            }));
-
-            // 🔔 Notify resident — they need to approve this stage
-            try {
-              const WORK_STAGES = [
-                'Work Initiated', 'Site Visit Done', 'Material Planning', 'Material Approved',
-                'Material Procured', 'Work in Progress', 'Quality Check', 'Testing',
-                'Snag / Issue Fixing', 'Final Inspection', 'Handover to Resident', 'Work Completed',
-              ];
-              const completedStep = updatedReq.workStep ?? currentStep;
-              const stageName = WORK_STAGES[completedStep] || `Stage ${completedStep + 1}`;
-              getResidentStore().getState().addNotification({
-                type: 'maintenance',
-                title: `🔨 Stage Complete — Approval Needed`,
-                body: `Vendor ${updatedReq.assignedVendor?.name || 'Vendor'} has completed "${stageName}" at Unit ${updatedReq.resident?.unit || ''}. Please open the Maintenance screen to Approve or Reject.`,
-                requestId,
-                actionType: 'step_approval',
-              });
-            } catch (e) { /* ignore */ }
-          }
-        } catch (error) {
-          console.error('Vendor Advance Step Error:', error);
-        }
-      },
-
-      // Alias used by RequestDetailsScreen
-      vendorAdvanceStep: async (requestId) => get().vendorAdvanceWorkStep(requestId),
-
-      // Vendor flags current stage as done — waits for admin OR resident to approve
-      vendorRequestStepApproval: (requestId) => {
-        const WORK_STAGES = [
-          'Work Initiated', 'Site Visit Done', 'Material Planning', 'Material Approved',
-          'Material Procured', 'Work in Progress', 'Quality Check', 'Testing',
-          'Snag / Issue Fixing', 'Final Inspection', 'Handover to Resident', 'Work Completed',
-        ];
-        const req = get().maintenanceRequests.find(r => r.id === requestId);
-        if (!req) return;
-        const currentStep = req._workStep || 0;
-        const stageName = WORK_STAGES[currentStep] || `Stage ${currentStep + 1}`;
-        set(s => ({
-          maintenanceRequests: s.maintenanceRequests.map(r =>
-            r.id === requestId
-              ? {
-                ...r,
-                pendingStepApproval: true,
-                pendingStep: currentStep,
-                timeline: [...r.timeline, { action: `Stage ${currentStep + 1} "${stageName}" submitted for approval`, by: req.assignedVendorName || 'Vendor', at: now() }],
-              }
-              : r
-          ),
-        }));
-        // 🔔 Notify admin — needs to approve this stage
-        try {
-          getAdminStore().getState().addNotification({
-            type: 'maintenance',
-            title: `✅ Approve Stage ${currentStep + 1}/12`,
-            body: `${req.assignedVendorName || 'Vendor'} completed stage ${currentStep + 1} "${stageName}" at Unit ${req.unit} (${req.category}). Please approve to let them continue.`,
-            requestId,
-          });
-        } catch (e) { /* ignore */ }
-        // 🔔 Notify resident — they can also approve
-        try {
-          getResidentStore().getState().addNotification({
-            type: 'maintenance',
-            title: `✅ Approve Work Stage ${currentStep + 1}/12`,
-            body: `Stage ${currentStep + 1} "${stageName}" is complete at your unit (${req.unit}). Tap to approve and let the vendor continue.`,
-            requestId,
-          });
-        } catch (e) { /* ignore */ }
-      },
-
-      // Admin OR resident approves a pending work stage → step advances, vendor notified
+      // Admin OR resident approves work → vendor notified
       approveWorkStep: async (requestId, approved, approvedBy = 'Resident') => {
         try {
           const { MaintenanceApi } = require('../services/maintenanceApi');
           const updatedReq = await MaintenanceApi.approveWorkStep(requestId, approved, approvedBy);
           if (updatedReq) {
             set(s => ({
-              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? {
-                ...updatedReq,
-                residentId: updatedReq.resident?.id,
-                residentName: updatedReq.resident?.name,
-                assignedVendorId: updatedReq.assignedVendor?.id,
-                assignedVendorName: updatedReq.assignedVendor?.name
-              } : r),
+              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? mapMaintenance(updatedReq) : r),
             }));
 
             // 🔔 Notify vendor
             try {
-              const WORK_STAGES = [
-                'Work Initiated', 'Site Visit Done', 'Material Planning', 'Material Approved',
-                'Material Procured', 'Work in Progress', 'Quality Check', 'Testing',
-                'Snag / Issue Fixing', 'Final Inspection', 'Handover to Resident', 'Work Completed',
-              ];
-              // After backend processes: workStep = next stage (advanced on approval) or same (on rejection)
-              const newWorkStep = updatedReq.workStep ?? 0;
-              // The stage that was just approved/rejected is one before (if approved) or same (if rejected)
-              const approvedStageIdx = approved ? newWorkStep - 1 : newWorkStep;
-              const approvedStageName = WORK_STAGES[approvedStageIdx] || `Stage ${approvedStageIdx + 1}`;
-              const nextStageName = WORK_STAGES[newWorkStep] || null;
-
               if (approved) {
                 getVendorStore().getState().addNotification({
                   type: 'approved',
-                  title: `🟢 Stage ${approvedStageIdx + 1} "${approvedStageName}" Approved!`,
-                  body: updatedReq.status === 'work_completed'
-                    ? `${approvedBy} approved the final stage. Work is now marked complete! 🎉`
-                    : `${approvedBy} approved Stage ${approvedStageIdx + 1}. Proceed with Stage ${newWorkStep + 1}: "${nextStageName}".`,
+                  title: `🟢 Work Approved!`,
+                  body: `${approvedBy} approved the work. You can now request payment. 🎉`,
                   requestId,
                 });
               } else {
                 getVendorStore().getState().addNotification({
                   type: 'rejected',
-                  title: `🔴 Stage ${approvedStageIdx + 1} "${approvedStageName}" Rejected`,
-                  body: `${approvedBy} (Unit ${updatedReq.resident?.unit || ''}) rejected Stage ${approvedStageIdx + 1}. Please review and redo before resubmitting.`,
+                  title: `🔴 Work Feedback`,
+                  body: `${approvedBy} (Unit ${updatedReq.resident?.unit || ''}) has sent feedback on the work. Please review.`,
                   requestId,
                 });
               }
             } catch (e) { /* ignore */ }
           }
         } catch (error) {
-          console.error('Approve Work Step Error:', error);
+          console.error('Approve Work Error:', error);
         }
       },
 
@@ -878,14 +747,7 @@ const useAppStore = create(
           const updatedReq = await MaintenanceApi.adminRequestPaymentFromResident(requestId);
           if (updatedReq) {
             set(s => ({
-              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? {
-                ...updatedReq,
-                residentId: updatedReq.resident?.id,
-                residentName: updatedReq.resident?.name,
-                unit: updatedReq.resident?.unit,
-                assignedVendorId: updatedReq.assignedVendor?.id,
-                assignedVendorName: updatedReq.assignedVendor?.name
-              } : r),
+              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? mapMaintenance(updatedReq) : r),
             }));
 
             // 🔔 Notify resident
@@ -1036,13 +898,7 @@ const useAppStore = create(
  
           if (updatedReq) {
             set(s => ({
-              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? {
-                ...updatedReq,
-                residentId: updatedReq.resident?.id,
-                residentName: updatedReq.resident?.name,
-                assignedVendorId: updatedReq.assignedVendor?.id,
-                assignedVendorName: updatedReq.assignedVendor?.name
-              } : r),
+              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? mapMaintenance(updatedReq) : r),
             }));
             return { ok: true };
           }
@@ -1080,15 +936,7 @@ const useAppStore = create(
           const updatedReq = await MaintenanceApi.adminApproveQuote(requestId);
           if (updatedReq) {
             set(s => ({
-              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? {
-                ...updatedReq,
-                residentId: updatedReq.resident?.id,
-                residentName: updatedReq.resident?.name,
-                unit: updatedReq.resident?.unit,
-                assignedVendorId: updatedReq.assignedVendor?.id,
-                assignedVendorName: updatedReq.assignedVendor?.name,
-                quote: updatedReq.quote ? { ...updatedReq.quote } : null
-              } : r),
+              maintenanceRequests: s.maintenanceRequests.map(r => r.id === requestId ? mapMaintenance(updatedReq) : r),
             }));
 
             // 🔔 Notify resident

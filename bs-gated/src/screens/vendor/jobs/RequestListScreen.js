@@ -126,7 +126,9 @@ export default function RequestListScreen({ navigation }) {
           <Text style={[s.hint, { color: P.purple, fontWeight: '800' }]}>🚀 Approved! Proceed to gate with your OTP below</Text>
         )}
         {item.status === 'work_in_progress' && (
-          <Text style={[s.hint, { color: P.amber }]}>🔧 Stage {item._workStep || 0}/12 — submit stages as you complete them</Text>
+          <Text style={[s.hint, { color: P.amber }]}>
+            🔧 {item.pendingStepApproval ? 'Arrival Pending — Waiting for resident to confirm arrival' : 'In Progress — Working at unit'}
+          </Text>
         )}
 
         {/* Gate OTP */}
@@ -167,7 +169,7 @@ export default function RequestListScreen({ navigation }) {
             style={[s.actionBtn, { backgroundColor: P.amber }]}
             onPress={() => navigation.navigate('ActiveWork', { jobId: item.id })}
           >
-            <Text style={s.actionBtnText}>📝 Update Progress</Text>
+            <Text style={s.actionBtnText}>🏁 Finish Work</Text>
           </TouchableOpacity>
         )}
       </View>

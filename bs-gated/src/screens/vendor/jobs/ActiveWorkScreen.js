@@ -49,24 +49,24 @@ export default function ActiveWorkScreen({ navigation, route }) {
   const completedSteps = job._workStep || 0;
   const progress = Math.round((completedSteps / 12) * 100);
   const pendingApproval = job.pendingStepApproval === true;
-  const pendingStepNum = job.pendingStep ?? completedSteps;
   const isWorkCompleted = job.status === 'work_completed';
   const isInProgress = job.status === 'work_in_progress';
-  const currentStageName = WORK_STAGES[completedSteps] || `Stage ${completedSteps + 1}`;
-  const pendingStageName = WORK_STAGES[pendingStepNum] || `Stage ${pendingStepNum + 1}`;
+  const isAwaitingArrival = isInProgress && pendingApproval && (job._workStep === 0 || !job._workStep);
+  const isAwaitingCompletion = isInProgress && pendingApproval && job._workStep === 12;
+  const isWorking = isInProgress && !pendingApproval;
+  const currentStageName = isWorkCompleted ? 'Work Completed' : (isAwaitingArrival ? 'Arrival Pending' : 'In Progress');
 
-  const handleSubmitStage = () => {
-    if (pendingApproval) return;
+  const handleMarkComplete = () => {
     Alert.alert(
-      `Submit Stage ${completedSteps + 1} for Approval`,
-      `Mark "${currentStageName}" as complete?\n\nAdmin and resident will be notified to approve before you can continue.`,
+      'Mark Work as Completed',
+      'Are you sure you have finished all work for this request?\n\nThe resident and admin will be notified for final approval and payment.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Submit for Approval',
-          onPress: () => {
-            vendorRequestStepApproval(jobId);
-            Alert.alert('✅ Submitted!', `Stage ${completedSteps + 1} "${currentStageName}" submitted.\n\nWaiting for admin or resident to approve.`);
+          text: 'Yes, Completed',
+          onPress: async () => {
+            await vendorMarkWorkComplete(jobId);
+            Alert.alert('✅ Done!', 'Work marked as completed. Waiting for final approval.');
           },
         },
       ]
@@ -81,10 +81,14 @@ export default function ActiveWorkScreen({ navigation, route }) {
           <Text style={styles.backArrow}>‹</Text>
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.activeTitle}>Active Work</Text>
+          <Text style={styles.activeTitle}>Maintenance Work</Text>
           <Text style={styles.activeSub}>{job.id} · {job.category}</Text>
         </View>
-        <Badge label="In Progress" color={Colors.amber} bg={Colors.amberLight} />
+        <Badge 
+          label={isWorkCompleted ? 'Completed' : 'In Progress'} 
+          color={isWorkCompleted ? Colors.green : Colors.amber} 
+          bg={isWorkCompleted ? Colors.greenLight : Colors.amberLight} 
+        />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -95,6 +99,7 @@ export default function ActiveWorkScreen({ navigation, route }) {
             <View style={{ flex: 1 }}>
               <Text style={styles.scName}>{job.residentName}</Text>
               <Text style={styles.scLoc}>Unit {job.unit}</Text>
+              <Text style={[styles.scLoc, { marginTop: 4, color: Colors.text }]}>{job.title}</Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
               <Text style={styles.scAmtLabel}>Quote Amount</Text>
@@ -103,87 +108,79 @@ export default function ActiveWorkScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* Pending approval banner */}
-        {pendingApproval && (
-          <View style={styles.pendingBanner}>
-            <Text style={styles.pendingIcon}>⏳</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.pendingTitle}>Waiting for Approval — Stage {pendingStepNum + 1}/12</Text>
-              <Text style={styles.pendingSub}>"{pendingStageName}" submitted — admin or resident must approve before you can continue.</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Ready to submit banner */}
-        {isInProgress && !pendingApproval && completedSteps < 12 && (
-          <View style={[styles.pendingBanner, { borderLeftColor: Colors.teal, backgroundColor: theme.surface }]}>
-            <Text style={styles.pendingIcon}>🔧</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.pendingTitle, { color: Colors.purple }]}>
-                {completedSteps === 0 ? 'Work Started — Submit Stage 1' : `Stage ${completedSteps} Approved — Submit Stage ${completedSteps + 1}`}
-              </Text>
-              <Text style={[styles.pendingSub, { color: Colors.purple }]}>
-                Currently working on: "{currentStageName}" — tap Submit below when done.
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Progress steps */}
+        {/* Status Section */}
         <Card>
-          <View style={styles.progressHeaderRow}>
-            <Text style={styles.progressTitle}>Work Progress</Text>
-            <Text style={styles.progressCount}>{completedSteps}/12 stages</Text>
+          <Text style={styles.progressTitle}>Work Status</Text>
+          <Divider marginVertical={12} />
+          
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, { backgroundColor: isInProgress ? Colors.amber : Colors.green }]} />
+            <Text style={styles.statusText}>
+              {isInProgress ? 'Vendor is currently performing the requested maintenance.' : 'Maintenance work has been completed.'}
+            </Text>
           </View>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: (progress + '%') }]} />
-          </View>
-          <View style={{ marginTop: 16 }}>
-            {WORK_STAGES.map((stage, i) => (
-              <ProgressStep
-                key={i}
-                number={i + 1}
-                label={stage}
-                status={
-                  i < completedSteps ? 'done'
-                    : pendingApproval && i === pendingStepNum ? 'active'
-                      : i === completedSteps && !pendingApproval ? 'active'
-                        : 'pending'
-                }
-                isLast={i === WORK_STAGES.length - 1}
-              />
-            ))}
-          </View>
+
+          {!isWorkCompleted && !pendingApproval && (
+            <View style={styles.infoBox}>
+              <Text style={styles.infoText}>
+                💡 Once you finish the work, tap the button below to notify the resident and admin.
+              </Text>
+            </View>
+          )}
+
+          {/* Pending start approval (Arrival) */}
+          {isAwaitingArrival && (
+            <View style={[styles.infoBox, { backgroundColor: Colors.amberLight, borderColor: Colors.amber, borderWidth: 1 }]}>
+              <Text style={[styles.infoText, { color: Colors.amber, fontWeight: '700' }]}>
+                ⏳ Waiting for Resident to confirm your arrival...
+              </Text>
+              <Text style={[styles.infoText, { marginTop: 4 }]}>
+                You have entered the gate. Please wait for the resident to acknowledge you are at their unit before starting work.
+              </Text>
+            </View>
+          )}
+
+          {/* Pending work completion approval */}
+          {isAwaitingCompletion && (
+            <View style={[styles.infoBox, { backgroundColor: Colors.amberLight, borderColor: Colors.amber, borderWidth: 1 }]}>
+              <Text style={[styles.infoText, { color: Colors.amber, fontWeight: '700' }]}>
+                ⏳ Waiting for Final Approval...
+              </Text>
+              <Text style={[styles.infoText, { marginTop: 4 }]}>
+                You have marked the work as finished. The resident and admin are reviewing it. Once approved, the job will be marked as completed.
+              </Text>
+            </View>
+          )}
         </Card>
 
-        {/* Action: submit current stage for approval */}
-        {isInProgress && !pendingApproval && completedSteps < 12 && (
+        {/* Action: Mark as completed */}
+        {isWorking && (
           <PrimaryButton
-            title={`📋 Submit Stage ${completedSteps + 1} for Approval`}
-            onPress={handleSubmitStage}
-            color={Colors.purple}
+            title="🏁 Mark Work as Completed"
+            onPress={handleMarkComplete}
+            color={Colors.teal}
+            style={{ marginTop: 24 }}
           />
         )}
 
-        {/* Waiting state */}
-        {isInProgress && pendingApproval && (
-          <View style={styles.waitingBtn}>
-            <Text style={styles.waitingBtnText}>⏳ Awaiting Approval — Stage {pendingStepNum + 1} "{pendingStageName}"</Text>
+        {/* All done — request payment */}
+        {isWorkCompleted && !pendingApproval && (
+          <View style={{ marginTop: 10 }}>
+            <View style={styles.successBox}>
+              <Text style={styles.successText}>✅ Work Completed!</Text>
+              <Text style={styles.successSub}>Now you can request the final payment from the admin.</Text>
+            </View>
+            <PrimaryButton
+              title="💰 Request Payment"
+              onPress={() => {
+                vendorRequestPayment(jobId);
+                Alert.alert('✅ Requested!', 'Payment request sent to admin.', [
+                  { text: 'OK', onPress: () => navigation.navigate('JobsList') },
+                ]);
+              }}
+              color={Colors.green}
+            />
           </View>
-        )}
-
-        {/* All 12 done — request payment */}
-        {isWorkCompleted && (
-          <PrimaryButton
-            title="💰 Request Payment from Admin"
-            onPress={() => {
-              vendorRequestPayment(jobId);
-              Alert.alert('✅ Requested!', 'Payment request sent to admin. They will collect from the resident and pay you.', [
-                { text: 'OK', onPress: () => navigation.navigate('JobsList') },
-              ]);
-            }}
-            color={Colors.green}
-          />
         )}
       </ScrollView>
     </SafeAreaView>
@@ -212,24 +209,15 @@ const styles = StyleSheet.create({
   scAmtLabel: { fontSize: 11, color: Colors.text2, marginBottom: 2 },
   scAmt: { fontSize: 18, fontWeight: Fonts.extraBold, color: Colors.purple },
 
-  // Pending / ready banner
-  pendingBanner: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-    backgroundColor: Colors.amberLight, borderRadius: Radius.md, padding: 14,
-    marginBottom: 12, borderLeftWidth: 4, borderLeftColor: Colors.amber,
-  },
-  pendingIcon: { fontSize: 22 },
-  pendingTitle: { fontSize: 13, fontWeight: Fonts.bold, color: Colors.amber, marginBottom: 2 },
-  pendingSub: { fontSize: 12, color: Colors.text2, lineHeight: 18 },
-
-  // Progress
-  progressHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  progressTitle: { fontSize: 14, fontWeight: Fonts.bold, color: Colors.text },
-  progressCount: { fontSize: 12, color: Colors.text2 },
-  progressBarBg: { height: 8, backgroundColor: Colors.bg, borderRadius: 99, overflow: 'hidden' },
-  progressBarFill: { height: '100%', backgroundColor: Colors.teal, borderRadius: 99 },
-
-  // Waiting button placeholder
-  waitingBtn: { margin: 16, padding: 16, borderRadius: Radius.md, backgroundColor: Colors.amberLight, alignItems: 'center' },
-  waitingBtnText: { fontSize: 14, fontWeight: Fonts.bold, color: Colors.amber, textAlign: 'center' },
+  progressTitle: { fontSize: 15, fontWeight: Fonts.bold, color: Colors.text },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  statusText: { flex: 1, fontSize: 14, color: Colors.text, lineHeight: 20 },
+  
+  infoBox: { backgroundColor: Colors.bg, padding: 12, borderRadius: Radius.md, marginTop: 16 },
+  infoText: { fontSize: 13, color: Colors.text2, fontStyle: 'italic' },
+  
+  successBox: { backgroundColor: Colors.greenLight, padding: 16, borderRadius: Radius.lg, marginBottom: 16, alignItems: 'center', borderWidth: 1, borderColor: Colors.green + '20' },
+  successText: { fontSize: 16, fontWeight: Fonts.extraBold, color: Colors.green },
+  successSub: { fontSize: 13, color: Colors.green, textAlign: 'center', marginTop: 4 },
 });
